@@ -73,6 +73,7 @@ export interface GameState {
   wipersActive: boolean;
   steeringAngle: number;
   indicatorStatus: IndicatorType;
+  rearViewActive: boolean;
   // 3D and Accountability
   roadCurve: number;
   currentCurve: number;

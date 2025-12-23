@@ -6,6 +6,7 @@ interface DashboardProps {
   state: GameState;
   onToggleLights: () => void;
   onToggleWipers: () => void;
+  onToggleRearView?: () => void;
   onOpenDoors: () => void;
   onRadioCheck: () => void;
 }
@@ -14,13 +15,21 @@ const Dashboard: React.FC<DashboardProps> = ({
   state, 
   onToggleLights, 
   onToggleWipers, 
+  onToggleRearView,
   onOpenDoors, 
   onRadioCheck 
 }) => {
+  // Speedometer logic
+  const maxSpeed = state.selectedBus.maxSpeed;
+  const currentSpeed = state.speed;
+  const speedPercentage = Math.min(1, currentSpeed / maxSpeed);
+  // Angle sweep: -120deg to +120deg (240 degree total sweep)
+  const needleRotation = (speedPercentage * 240) - 120;
+
   return (
     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-6xl h-40 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent backdrop-blur-[2px] border-t border-white/5 flex items-end justify-between px-16 pb-6 pointer-events-auto z-20">
       
-      {/* Steering Wheel Area - Made more transparent */}
+      {/* Steering Wheel Area */}
       <div className="relative group pb-2">
         <div 
           className="w-32 h-32 rounded-full border-[6px] border-slate-400/20 bg-slate-950/30 flex items-center justify-center transition-transform duration-200 shadow-2xl"
@@ -51,6 +60,12 @@ const Dashboard: React.FC<DashboardProps> = ({
           disabled={state.weather !== WeatherType.RAIN && !state.wipersActive}
         />
         <DashboardButton 
+          label="Camera" 
+          active={state.rearViewActive} 
+          onClick={onToggleRearView}
+          icon="📷"
+        />
+        <DashboardButton 
           label="Radio" 
           active={false} 
           onClick={onRadioCheck}
@@ -66,26 +81,92 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* Cluster / Gauges */}
-      <div className="flex flex-col items-center gap-3 pb-2">
-        <div className="flex gap-6">
-           <IndicatorLight active={state.indicatorStatus === IndicatorType.LEFT} side="L" />
-           <IndicatorLight active={state.indicatorStatus === IndicatorType.RIGHT} side="R" />
-        </div>
+      <div className="flex items-end gap-6 pb-2">
         
-        <div className="flex gap-3">
-           <StatusIndicator active={state.headlightsOn} color="blue" label="BEAM" />
-           <StatusIndicator active={state.isFull} color="red" label="FULL" />
-           <StatusIndicator active={state.isStopped} color="yellow" label="DOORS" />
+        {/* Speedometer Gauge */}
+        <div className="relative w-32 h-32 flex items-center justify-center">
+          <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+            {/* Background Circle */}
+            <circle 
+              cx="50" cy="50" r="45" 
+              fill="none" 
+              stroke="rgba(255,255,255,0.05)" 
+              strokeWidth="6" 
+            />
+            {/* Speed Arc */}
+            <circle 
+              cx="50" cy="50" r="45" 
+              fill="none" 
+              stroke="url(#speedGradient)" 
+              strokeWidth="4" 
+              strokeDasharray="283" 
+              strokeDashoffset={283 - (speedPercentage * 283 * (240/360))}
+              strokeLinecap="round"
+              className="transition-all duration-300 ease-out"
+              style={{ transform: 'rotate(150deg)', transformOrigin: 'center' }}
+            />
+            <defs>
+              <linearGradient id="speedGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#3b82f6" />
+                <stop offset="100%" stopColor="#10b981" />
+              </linearGradient>
+            </defs>
+          </svg>
+          
+          {/* Ticks and Numbers */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-full h-full relative">
+               {[0, 20, 40, 60, 80, 100, 120].map((val) => {
+                 const angle = (val / 120) * 240 - 120;
+                 return (
+                   <div 
+                     key={val} 
+                     className="absolute left-1/2 top-1/2 w-full h-[2px] origin-left -translate-y-1/2"
+                     style={{ transform: `rotate(${angle}deg)` }}
+                   >
+                      <div className="absolute right-1 top-1/2 -translate-y-1/2 w-2 h-full bg-white/20"></div>
+                   </div>
+                 );
+               })}
+            </div>
+          </div>
+
+          {/* Needle */}
+          <div 
+            className="absolute left-1/2 top-1/2 w-[45%] h-1 bg-red-500 origin-left -translate-y-1/2 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.8)] transition-transform duration-150 ease-out"
+            style={{ transform: `rotate(${needleRotation}deg)` }}
+          >
+            <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-slate-900 border-2 border-red-500"></div>
+          </div>
+
+          {/* Center Info */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
+            <span className="text-xl font-mono font-black text-white tabular-nums">{Math.round(currentSpeed)}</span>
+            <span className="text-[7px] font-black text-white/40 uppercase tracking-tighter">KM/H</span>
+          </div>
         </div>
 
-        <div className="bg-black/40 backdrop-blur-md p-3 rounded-2xl border border-white/10 min-w-[140px] text-center shadow-inner">
-           <div className="text-[9px] text-white/40 font-black uppercase tracking-widest mb-1">
-             Pass: {state.passengers}/{state.selectedBus.capacity}
-           </div>
-           <div className="text-3xl font-mono text-emerald-400 tabular-nums">
-             {Math.round(state.speed).toString().padStart(3, '0')}
-             <span className="text-xs ml-1 text-emerald-500/60">KM/H</span>
-           </div>
+        {/* Status Indicators & Digital Readout */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex gap-4">
+            <IndicatorLight active={state.indicatorStatus === IndicatorType.LEFT} side="L" />
+            <IndicatorLight active={state.indicatorStatus === IndicatorType.RIGHT} side="R" />
+          </div>
+          
+          <div className="flex gap-3">
+            <StatusIndicator active={state.headlightsOn} color="blue" label="BEAM" />
+            <StatusIndicator active={state.isFull} color="red" label="FULL" />
+            <StatusIndicator active={state.isStopped} color="yellow" label="DOORS" />
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 min-w-[120px] text-center shadow-inner">
+            <div className="text-[8px] text-white/40 font-black uppercase tracking-widest mb-0.5">
+              Passengers
+            </div>
+            <div className="text-xl font-mono text-blue-400 tabular-nums">
+              {state.passengers} / {state.selectedBus.capacity}
+            </div>
+          </div>
         </div>
       </div>
     </div>

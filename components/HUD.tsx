@@ -9,6 +9,7 @@ interface HUDProps {
   narration: string;
   onToggleLights: () => void;
   onToggleWipers: () => void;
+  onToggleRearView: () => void;
   onOpenDoors: () => void;
   onRadioCheck: () => void;
 }
@@ -18,6 +19,7 @@ const HUD: React.FC<HUDProps> = ({
   narration, 
   onToggleLights, 
   onToggleWipers, 
+  onToggleRearView,
   onOpenDoors, 
   onRadioCheck 
 }) => {
@@ -27,9 +29,7 @@ const HUD: React.FC<HUDProps> = ({
     [WeatherType.FOG]: "🌫️"
   };
 
-  // Simplified reflection movement for HUD mirrors
   const reflectionOffset = (state.currentDistance % 1000) / 10;
-  const steerShift = state.steeringAngle * 0.5;
 
   return (
     <div className="fixed inset-0 pointer-events-none p-6 flex flex-col justify-between z-10">
@@ -77,46 +77,39 @@ const HUD: React.FC<HUDProps> = ({
         </div>
       </div>
 
-      {/* Side Mirrors - Integrated closer to the "windshield" edges */}
-      <div className="absolute top-1/3 left-6 w-24 h-40 bg-slate-900/40 backdrop-blur-xl border-2 border-slate-700/30 rounded-2xl flex items-center justify-center shadow-2xl overflow-hidden">
-         <div 
-           className="absolute inset-0 opacity-30"
-           style={{
-             background: `linear-gradient(to bottom, transparent 40%, #1a202c 40%, #2d3748 60%, #1a202c 100%)`,
-             transform: `translateX(${steerShift}px)`
-           }}
-         ></div>
-         <div 
-           className="absolute w-12 h-full top-0 opacity-20"
-           style={{
-             left: '25%',
-             background: `repeating-linear-gradient(0deg, #f6e05e, #f6e05e 5px, transparent 5px, transparent 20px)`,
-             transform: `translateY(${reflectionOffset}px)`
-           }}
-         ></div>
-         <div className="text-[9px] font-black text-white/10 rotate-90 uppercase tracking-widest relative z-10">Left Wing</div>
-         <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent"></div>
-      </div>
-      
-      <div className="absolute top-1/3 right-6 w-24 h-40 bg-slate-900/40 backdrop-blur-xl border-2 border-slate-700/30 rounded-2xl flex items-center justify-center shadow-2xl overflow-hidden">
-         <div 
-           className="absolute inset-0 opacity-30"
-           style={{
-             background: `linear-gradient(to bottom, transparent 40%, #1a202c 40%, #2d3748 60%, #1a202c 100%)`,
-             transform: `translateX(${-steerShift}px)`
-           }}
-         ></div>
-         <div 
-           className="absolute w-12 h-full top-0 opacity-20"
-           style={{
-             right: '25%',
-             background: `repeating-linear-gradient(0deg, #f6e05e, #f6e05e 5px, transparent 5px, transparent 20px)`,
-             transform: `translateY(${reflectionOffset}px)`
-           }}
-         ></div>
-         <div className="text-[9px] font-black text-white/10 -rotate-90 uppercase tracking-widest relative z-10">Right Wing</div>
-         <div className="absolute inset-0 bg-gradient-to-l from-white/5 to-transparent"></div>
-      </div>
+      {/* Rear View Camera Monitor Overlay */}
+      {state.rearViewActive && (
+        <div className="absolute top-24 right-24 w-80 h-48 bg-slate-950 border-4 border-slate-800 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden pointer-events-auto">
+          <div className="absolute inset-0 bg-blue-900/10">
+            <div 
+              className="absolute inset-0 opacity-40"
+              style={{
+                background: `repeating-linear-gradient(0deg, #1a202c, #1a202c 2px, transparent 2px, transparent 10px)`,
+                transform: `translateY(${reflectionOffset}px)`
+              }}
+            ></div>
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-full bg-gradient-to-t from-slate-800/50 to-transparent origin-bottom" style={{ transform: 'perspective(100px) rotateX(45deg)' }}>
+              <div 
+                className="w-2 h-full bg-yellow-400/30 mx-auto"
+                style={{ background: `repeating-linear-gradient(0deg, #fbbf24 0%, #fbbf24 50%, transparent 50%, transparent 100%)`, backgroundSize: '10px 40px', backgroundPosition: `0 ${reflectionOffset}px` }}
+              ></div>
+            </div>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-64 h-32 flex flex-col justify-between items-center opacity-60">
+              <div className="w-full h-1 bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"></div>
+              <div className="w-3/4 h-1 bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]"></div>
+              <div className="w-1/2 h-1 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+            </div>
+          </div>
+          <div className="absolute top-3 left-4 flex gap-2 items-center">
+            <div className="w-3 h-3 rounded-full bg-red-600 animate-pulse"></div>
+            <span className="text-[10px] font-black text-white uppercase tracking-tighter">CAM 01: REAR</span>
+          </div>
+          <div className="absolute bottom-3 right-4">
+             <span className="text-[10px] font-mono text-emerald-400">FPS: 30 // HD MODE</span>
+          </div>
+          <div className="absolute inset-0 pointer-events-none opacity-20" style={{ background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))', backgroundSize: '100% 4px, 3px 100%' }}></div>
+        </div>
+      )}
 
       {/* Dispatcher Alert */}
       {narration && (
@@ -140,6 +133,7 @@ const HUD: React.FC<HUDProps> = ({
         state={state}
         onToggleLights={onToggleLights}
         onToggleWipers={onToggleWipers}
+        onToggleRearView={onToggleRearView}
         onOpenDoors={onOpenDoors}
         onRadioCheck={onRadioCheck}
       />
@@ -150,6 +144,7 @@ const HUD: React.FC<HUDProps> = ({
            <ControlChip keys="W/S" action="Drive" />
            <ControlChip keys="A/D" action="Steer" />
            <ControlChip keys="Q/E" action="Flash" />
+           <ControlChip keys="R" action="Camera" />
         </div>
 
         <div className="bg-black/40 backdrop-blur-md p-5 rounded-2xl border border-white/5 text-white min-w-[220px] shadow-2xl">
