@@ -62,6 +62,10 @@ export interface GameState {
   weather: WeatherType;
   lastStopDistance: number;
   nextStopDistance: number;
+  // Dashboard states
+  headlightsOn: boolean;
+  wipersActive: boolean;
+  steeringAngle: number;
 }
 
 export interface StopInfo {

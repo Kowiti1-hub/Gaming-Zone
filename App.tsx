@@ -16,7 +16,9 @@ import {
   SUBURBAN_THRESHOLD, 
   VILLAGE_THRESHOLD, 
   DRIVERS,
-  BUSES
+  BUSES,
+  TRAFFIC_LIGHT_DISTANCE,
+  TRAFFIC_LIGHT_CYCLE
 } from './constants';
 import { getNarration } from './services/geminiService';
 
@@ -35,6 +37,9 @@ const INITIAL_STATE: GameState = {
   weather: WeatherType.CLEAR,
   lastStopDistance: 0,
   nextStopDistance: 1000,
+  headlightsOn: false,
+  wipersActive: false,
+  steeringAngle: 0,
 };
 
 const App: React.FC = () => {
@@ -46,6 +51,7 @@ const App: React.FC = () => {
   stateRef.current = gameState;
 
   const keysPressed = useRef<{ [key: string]: boolean }>({});
+  const lastViolationDist = useRef<number>(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = true; };
@@ -83,23 +89,33 @@ const App: React.FC = () => {
     }, waitTime);
   }, []);
 
-  // Weather Cycling Logic
+  const handleRadioCheck = useCallback(async () => {
+    const s = stateRef.current;
+    const msg = await getNarration(s.selectedDriver, s.terrain, false);
+    setNarration(msg);
+    setTimeout(() => setNarration(""), 6000);
+  }, []);
+
   useEffect(() => {
     if (gameState.gameStatus !== 'DRIVING') return;
 
     const weatherInterval = setInterval(() => {
       const weathers = [WeatherType.CLEAR, WeatherType.RAIN, WeatherType.FOG];
       const nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
-      setGameState(prev => ({ ...prev, weather: nextWeather }));
+      setGameState(prev => ({ 
+        ...prev, 
+        weather: nextWeather,
+        wipersActive: nextWeather === WeatherType.RAIN ? true : prev.wipersActive 
+      }));
       
       const weatherMsgs: Record<WeatherType, string> = {
         [WeatherType.CLEAR]: "Skies are clearing up. Have a pleasant drive!",
-        [WeatherType.RAIN]: "Rain detected. Roads might be slippery, drive carefully.",
+        [WeatherType.RAIN]: "Rain detected. Activating wipers.",
         [WeatherType.FOG]: "Heavy fog ahead. Visibility is reduced."
       };
       setNarration(weatherMsgs[nextWeather]);
       setTimeout(() => setNarration(""), 4000);
-    }, 20000); // Change weather every 20 seconds for demonstration
+    }, 30000);
 
     return () => clearInterval(weatherInterval);
   }, [gameState.gameStatus]);
@@ -111,7 +127,6 @@ const App: React.FC = () => {
       setGameState(prev => {
         if (prev.isStopped) return prev;
 
-        // Gameplay Impact: Rain reduces acceleration and max speed
         const accelMult = prev.weather === WeatherType.RAIN ? 0.6 : 1.0;
         const speedLimit = prev.weather === WeatherType.RAIN ? prev.selectedBus.maxSpeed * 0.8 : prev.selectedBus.maxSpeed;
 
@@ -124,14 +139,41 @@ const App: React.FC = () => {
           newSpeed = Math.max(0, prev.speed - 0.05);
         }
 
+        // Steering animation logic
+        let newAngle = prev.steeringAngle;
+        if (keysPressed.current['a'] || keysPressed.current['arrowleft']) {
+          newAngle = Math.max(-45, prev.steeringAngle - 3);
+        } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
+          newAngle = Math.min(45, prev.steeringAngle + 3);
+        } else {
+          newAngle *= 0.9; // Return to center
+        }
+
         const distanceInc = newSpeed * 0.1;
         const newDistance = prev.currentDistance + distanceInc;
+
+        // Traffic Light Logic
+        if (prev.terrain === TerrainType.CITY) {
+          const lightIdx = Math.round(newDistance / TRAFFIC_LIGHT_DISTANCE);
+          const lightDist = lightIdx * TRAFFIC_LIGHT_DISTANCE;
+          const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
+          const isRed = cycleTime < 6000;
+          
+          // Detect if running a red light
+          if (isRed && Math.abs(newDistance - lightDist) < 30 && newSpeed > 5) {
+             if (Math.abs(newDistance - lastViolationDist.current) > 200) {
+               lastViolationDist.current = newDistance;
+               setNarration("Dispatch: That's a red light violation! Please observe traffic rules.");
+               setTimeout(() => setNarration(""), 4000);
+             }
+          }
+        }
 
         const isNearStop = Math.abs(newDistance - prev.nextStopDistance) < 50;
         if (isNearStop && (keysPressed.current[' '] || newSpeed < 2)) {
           const isRest = prev.terrain === TerrainType.VILLAGE;
           setTimeout(() => triggerStop(isRest), 0);
-          return { ...prev, speed: 0, currentDistance: prev.nextStopDistance };
+          return { ...prev, speed: 0, currentDistance: prev.nextStopDistance, steeringAngle: 0 };
         }
 
         let terrain = prev.terrain;
@@ -152,7 +194,8 @@ const App: React.FC = () => {
           speed: newSpeed,
           currentDistance: newDistance,
           terrain,
-          road
+          road,
+          steeringAngle: newAngle
         };
       });
     }, 16);
@@ -179,7 +222,14 @@ const App: React.FC = () => {
       <div className="relative">
         <GameCanvas state={gameState} />
         {gameState.gameStatus === 'DRIVING' && (
-          <HUD state={gameState} narration={narration} />
+          <HUD 
+            state={gameState} 
+            narration={narration} 
+            onToggleLights={() => setGameState(p => ({...p, headlightsOn: !p.headlightsOn}))}
+            onToggleWipers={() => setGameState(p => ({...p, wipersActive: !p.wipersActive}))}
+            onOpenDoors={() => { if(gameState.speed < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
+            onRadioCheck={handleRadioCheck}
+          />
         )}
       </div>
 

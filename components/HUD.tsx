@@ -1,13 +1,25 @@
 
 import React from 'react';
 import { GameState, WeatherType } from '../types';
+import Dashboard from './Dashboard';
 
 interface HUDProps {
   state: GameState;
   narration: string;
+  onToggleLights: () => void;
+  onToggleWipers: () => void;
+  onOpenDoors: () => void;
+  onRadioCheck: () => void;
 }
 
-const HUD: React.FC<HUDProps> = ({ state, narration }) => {
+const HUD: React.FC<HUDProps> = ({ 
+  state, 
+  narration, 
+  onToggleLights, 
+  onToggleWipers, 
+  onOpenDoors, 
+  onRadioCheck 
+}) => {
   const weatherIcons: Record<WeatherType, string> = {
     [WeatherType.CLEAR]: "☀️",
     [WeatherType.RAIN]: "🌧️",
@@ -49,7 +61,7 @@ const HUD: React.FC<HUDProps> = ({ state, narration }) => {
 
       {/* Dispatcher Message Area */}
       {narration && (
-        <div className="self-center w-full max-w-2xl mb-24">
+        <div className="self-center w-full max-w-2xl mb-48">
           <div className="bg-blue-900/40 backdrop-blur-lg p-4 rounded-2xl border-2 border-blue-500/50 text-white animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-2xl shrink-0">
@@ -64,16 +76,25 @@ const HUD: React.FC<HUDProps> = ({ state, narration }) => {
         </div>
       )}
 
-      {/* Bottom Bar Controls Hint */}
-      <div className="flex justify-between items-end">
+      {/* Dashboard Section */}
+      <Dashboard 
+        state={state}
+        onToggleLights={onToggleLights}
+        onToggleWipers={onToggleWipers}
+        onOpenDoors={onOpenDoors}
+        onRadioCheck={onRadioCheck}
+      />
+
+      {/* Bottom Floating Info */}
+      <div className="flex justify-between items-end mb-48">
         <div className="flex gap-4">
            <div className="bg-black/60 backdrop-blur-md p-3 rounded-lg border border-white/10 text-white flex items-center gap-3">
               <span className="bg-slate-700 px-2 py-0.5 rounded text-xs">W / S</span>
               <span className="text-xs text-slate-300">Accel / Brake</span>
            </div>
            <div className="bg-black/60 backdrop-blur-md p-3 rounded-lg border border-white/10 text-white flex items-center gap-3">
-              <span className="bg-slate-700 px-2 py-0.5 rounded text-xs">SPACE</span>
-              <span className="text-xs text-slate-300">Stop at Station</span>
+              <span className="bg-slate-700 px-2 py-0.5 rounded text-xs">A / D</span>
+              <span className="text-xs text-slate-300">Steer</span>
            </div>
         </div>
 
@@ -84,9 +105,6 @@ const HUD: React.FC<HUDProps> = ({ state, narration }) => {
               ? `${Math.max(0, Math.round((state.nextStopDistance - state.currentDistance) / 10))}m` 
               : 'Final Destination'}
           </div>
-          {state.isStopped && (
-            <div className="mt-2 text-xs text-yellow-400 animate-pulse font-bold">BOARDING PASSENGERS...</div>
-          )}
         </div>
       </div>
     </div>

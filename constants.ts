@@ -71,3 +71,6 @@ export const VILLAGE_THRESHOLD = 30000;
 export const STOP_INTERVAL_CITY_MIN = 6; // seconds
 export const STOP_INTERVAL_CITY_MAX = 30; // seconds
 export const REST_STOP_INTERVAL = 50; // seconds
+
+export const TRAFFIC_LIGHT_DISTANCE = 2500; // units between city traffic lights
+export const TRAFFIC_LIGHT_CYCLE = 15000; // ms per full cycle (Red -> Green -> Yellow)
