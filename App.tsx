@@ -22,6 +22,7 @@ import {
   TRAFFIC_LIGHT_CYCLE
 } from './constants';
 import { getNarration } from './services/geminiService';
+import { audioService } from './services/audioService';
 
 const INITIAL_STATE: GameState = {
   currentDistance: 0,
@@ -64,7 +65,6 @@ const App: React.FC = () => {
       const key = e.key.toLowerCase();
       keysPressed.current[key] = true; 
       
-      // Toggle indicators
       if (key === 'q') {
         setGameState(prev => ({
           ...prev,
@@ -101,7 +101,6 @@ const App: React.FC = () => {
     if (s.isStopped) return;
 
     const busIsFull = s.passengers >= s.selectedBus.capacity;
-    
     setGameState(prev => ({ ...prev, isStopped: true, speed: 0 }));
     
     const msg = busIsFull 
@@ -114,14 +113,12 @@ const App: React.FC = () => {
     setTimeout(() => {
       setGameState(prev => {
         const nextDist = prev.currentDistance + (isRest ? 5000 : (Math.random() * 3000 + 2000));
-        
         let newPassengers = prev.passengers;
         let joined = 0;
         if (!busIsFull) {
           joined = Math.floor(Math.random() * 10) + 1;
           newPassengers = Math.min(prev.selectedBus.capacity, prev.passengers + joined);
         }
-        
         const left = Math.floor(Math.random() * (newPassengers / 2 + 1));
         newPassengers = Math.max(0, newPassengers - left);
 
@@ -132,7 +129,7 @@ const App: React.FC = () => {
             isFull: newPassengers >= prev.selectedBus.capacity,
             lastStopDistance: prev.currentDistance,
             nextStopDistance: nextDist,
-            money: prev.money + (joined * 5) // Earn money per passenger
+            money: prev.money + (joined * 5)
         };
       });
       if (!busIsFull) setNarration("");
@@ -150,6 +147,11 @@ const App: React.FC = () => {
     if (gameState.gameStatus !== 'DRIVING') return;
 
     const interval = setInterval(() => {
+      const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
+      
+      // Update Audio Engine
+      audioService.update(stateRef.current.speed, isAccelerating, stateRef.current.selectedBus.size);
+
       setGameState(prev => {
         if (prev.isStopped) return prev;
 
@@ -157,7 +159,7 @@ const App: React.FC = () => {
         const speedLimit = prev.weather === WeatherType.RAIN ? prev.selectedBus.maxSpeed * 0.8 : prev.selectedBus.maxSpeed;
 
         let newSpeed = prev.speed;
-        if (keysPressed.current['w'] || keysPressed.current['arrowup']) {
+        if (isAccelerating) {
           newSpeed = Math.min(speedLimit, prev.speed + prev.selectedBus.acceleration * accelMult);
         } else if (keysPressed.current['s'] || keysPressed.current['arrowdown']) {
           newSpeed = Math.max(0, prev.speed - prev.selectedBus.acceleration * 2);
@@ -175,7 +177,7 @@ const App: React.FC = () => {
         } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
           newAngle = Math.min(45, prev.steeringAngle + steeringSpeed);
         } else {
-          newAngle *= 0.92; // Smoother return to center
+          newAngle *= 0.92;
         }
 
         const distanceInc = newSpeed * 0.15;
@@ -240,6 +242,7 @@ const App: React.FC = () => {
   }, [gameState.gameStatus, triggerStop, triggerPenalty]);
 
   const handleStartGame = (driver: Driver, bus: Bus) => {
+    audioService.init(); // Initialize Web Audio Context
     setGameState({
       ...INITIAL_STATE,
       selectedDriver: driver,
@@ -250,6 +253,12 @@ const App: React.FC = () => {
     setNarration(`Dispatch: Welcome aboard, ${driver.name}. Good luck on your city-to-village route!`);
     setTimeout(() => setNarration(""), 5000);
   };
+
+  useEffect(() => {
+    return () => {
+      audioService.stop(); // Cleanup audio context
+    };
+  }, []);
 
   return (
     <div className="relative w-screen h-screen bg-slate-950 flex items-center justify-center overflow-hidden">
