@@ -231,7 +231,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
       const x = (CANVAS_WIDTH / 2) + curveAccumulator * 300 * z;
       const nextX = (CANVAS_WIDTH / 2) + (curveAccumulator + roadCurve * (1-nextZ)) * 300 * nextZ;
 
-      const isAlt = Math.floor((currentDistance + (segments - i) * 20) / 40) % 2 === 0;
+      const segWorldDist = currentDistance + (segments - i) * 20;
+      const isAlt = Math.floor(segWorldDist / 40) % 2 === 0;
       
       ctx.fillStyle = isAlt ? groundBaseColor : (terrain === TerrainType.CITY ? '#2d3748' : '#276749');
       ctx.beginPath();
@@ -256,6 +257,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
         ctx.globalAlpha = 1.0;
       }
 
+      // Traffic Light Integration
+      if (terrain === TerrainType.CITY) {
+        const lightIdx = Math.round(segWorldDist / TRAFFIC_LIGHT_DISTANCE);
+        const lightWorldDist = lightIdx * TRAFFIC_LIGHT_DISTANCE;
+        if (Math.abs(segWorldDist - lightWorldDist) < 10) {
+            drawTrafficLight(ctx, x + w/2 + 30 * z, y, z, lightIdx);
+        }
+      }
+
       const propInterval = terrain === TerrainType.CITY ? 4 : 6;
       if (i % propInterval === 0) {
         const side = (seed(i + Math.floor(currentDistance/1000)) % 2 === 0) ? 1 : -1;
@@ -270,6 +280,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     }
   };
 
+  const drawTrafficLight = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, lightIdx: number) => {
+    const scale = z * 2.5;
+    const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
+    
+    let activeBulb = 2; // 0: Red, 1: Yellow, 2: Green
+    if (cycleTime < 6000) activeBulb = 0;
+    else if (cycleTime < 8000) activeBulb = 1;
+
+    ctx.save();
+    
+    // Main Pole
+    ctx.fillStyle = '#2d3748';
+    ctx.fillRect(x - 2 * scale, y - 90 * scale, 4 * scale, 90 * scale);
+    
+    // Light Box (Housing)
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(x - 8 * scale, y - 95 * scale, 16 * scale, 40 * scale);
+    
+    // Draw Individual Bulbs
+    const drawBulb = (bulbIdx: number, color: string, isActive: boolean) => {
+      const bulbY = y - 95 * scale + (bulbIdx * 11 * scale) + 9 * scale;
+      ctx.fillStyle = isActive ? color : '#000';
+      
+      if (isActive) {
+        ctx.shadowBlur = 20 * scale;
+        ctx.shadowColor = color;
+      }
+      
+      ctx.beginPath();
+      ctx.arc(x, bulbY, 4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    };
+
+    drawBulb(0, '#ef4444', activeBulb === 0);
+    drawBulb(1, '#f59e0b', activeBulb === 1);
+    drawBulb(2, '#10b981', activeBulb === 2);
+
+    ctx.restore();
+  };
+
   const seed = (s: number) => Math.abs(Math.sin(s) * 10000);
 
   const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, terrain: TerrainType, s: number, weather: WeatherType) => {
@@ -278,7 +329,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     if (weather === WeatherType.FOG) ctx.globalAlpha = Math.max(0, z * 2 - 0.5);
 
     if (terrain === TerrainType.CITY) {
-      const type = s % 6;
+      const type = s % 8; // Increased modulus for more variety
       if (type < 3) { // Enhanced Buildings
         const h = (120 + (s % 300)) * scale;
         const w = (60 + (s % 80)) * scale;
@@ -341,7 +392,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
           ctx.textAlign = 'center';
           ctx.fillText("STOP", x, y - h - signRadius + 2.5 * scale);
         }
-      } else { // Enhanced Bus Shelter
+      } else if (type === 5) { // Enhanced Bus Shelter
         const sw = 50 * scale;
         const sh = 40 * scale;
         ctx.fillStyle = '#2d3748';
@@ -351,9 +402,39 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
         // Glass back
         ctx.fillStyle = 'rgba(160, 174, 192, 0.4)';
         ctx.fillRect(x - sw/2 + 3 * scale, y - sh + 3 * scale, sw - 6 * scale, sh - 3 * scale);
-        // Bench
+        // Bench inside shelter
         ctx.fillStyle = '#4a5568';
         ctx.fillRect(x - sw/3, y - 12 * scale, (sw*2)/3, 3 * scale);
+      } else if (type === 6) { // NEW: Trash Can
+        const tw = 10 * scale;
+        const th = 15 * scale;
+        ctx.fillStyle = '#4a5568'; // Dark metal
+        ctx.fillRect(x - tw/2, y - th, tw, th);
+        ctx.fillStyle = '#2d3748'; // Lid rim
+        ctx.fillRect(x - (tw/2 + scale), y - th - scale, tw + 2 * scale, 2 * scale);
+        // Detail lines
+        ctx.strokeStyle = '#1a202c';
+        ctx.lineWidth = 0.5 * scale;
+        ctx.beginPath();
+        ctx.moveTo(x - tw/4, y - th); ctx.lineTo(x - tw/4, y);
+        ctx.moveTo(x + tw/4, y - th); ctx.lineTo(x + tw/4, y);
+        ctx.stroke();
+      } else { // NEW: Standalone Bench
+        const bw = 40 * scale;
+        const bh = 18 * scale;
+        // Legs
+        ctx.fillStyle = '#1a202c';
+        ctx.fillRect(x - bw/2.5, y - bh, 2 * scale, bh);
+        ctx.fillRect(x + bw/2.5 - 2 * scale, y - bh, 2 * scale, bh);
+        // Slats (Wood)
+        ctx.fillStyle = '#744210';
+        ctx.fillRect(x - bw/2, y - bh, bw, 3 * scale); // seat top
+        ctx.fillRect(x - bw/2, y - bh + 4 * scale, bw, 3 * scale); // seat bottom
+        // Backrest
+        ctx.fillRect(x - bw/2, y - bh - 10 * scale, bw, 4 * scale);
+        ctx.fillStyle = '#1a202c'; // Backrest support
+        ctx.fillRect(x - bw/2.5, y - bh - 10 * scale, 2 * scale, 10 * scale);
+        ctx.fillRect(x + bw/2.5 - 2 * scale, y - bh - 10 * scale, 2 * scale, 10 * scale);
       }
     } else { // Enhanced Village Buildings (Mixed types)
       const type = s % 5;
