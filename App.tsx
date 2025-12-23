@@ -9,7 +9,8 @@ import {
   Bus, 
   TerrainType, 
   RoadType, 
-  WeatherType 
+  WeatherType,
+  IndicatorType
 } from './types';
 import { 
   CITY_THRESHOLD, 
@@ -26,7 +27,7 @@ const INITIAL_STATE: GameState = {
   currentDistance: 0,
   speed: 0,
   passengers: 0,
-  money: 0,
+  money: 500,
   isStopped: false,
   currentStopId: null,
   selectedBus: BUSES[0],
@@ -36,10 +37,15 @@ const INITIAL_STATE: GameState = {
   road: RoadType.PAVED,
   weather: WeatherType.CLEAR,
   lastStopDistance: 0,
-  nextStopDistance: 1000,
+  nextStopDistance: 1500,
   headlightsOn: false,
   wipersActive: false,
   steeringAngle: 0,
+  indicatorStatus: IndicatorType.OFF,
+  roadCurve: 0,
+  currentCurve: 0,
+  totalViolations: 0,
+  isFull: false,
 };
 
 const App: React.FC = () => {
@@ -54,7 +60,23 @@ const App: React.FC = () => {
   const lastViolationDist = useRef<number>(0);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = true; };
+    const handleKeyDown = (e: KeyboardEvent) => { 
+      const key = e.key.toLowerCase();
+      keysPressed.current[key] = true; 
+      
+      // Toggle indicators
+      if (key === 'q') {
+        setGameState(prev => ({
+          ...prev,
+          indicatorStatus: prev.indicatorStatus === IndicatorType.LEFT ? IndicatorType.OFF : IndicatorType.LEFT
+        }));
+      } else if (key === 'e') {
+        setGameState(prev => ({
+          ...prev,
+          indicatorStatus: prev.indicatorStatus === IndicatorType.RIGHT ? IndicatorType.OFF : IndicatorType.RIGHT
+        }));
+      }
+    };
     const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -64,28 +86,56 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const triggerPenalty = useCallback((reason: string, amount: number) => {
+    setGameState(prev => ({
+      ...prev,
+      money: Math.max(0, prev.money - amount),
+      totalViolations: prev.totalViolations + 1
+    }));
+    setNarration(`OFFICIAL CITATION: ${reason}. Penalty: $${amount} deducted.`);
+    setTimeout(() => setNarration(""), 5000);
+  }, []);
+
   const triggerStop = useCallback(async (isRest: boolean) => {
     const s = stateRef.current;
     if (s.isStopped) return;
 
+    const busIsFull = s.passengers >= s.selectedBus.capacity;
+    
     setGameState(prev => ({ ...prev, isStopped: true, speed: 0 }));
     
-    const msg = await getNarration(s.selectedDriver, s.terrain, isRest);
+    const msg = busIsFull 
+      ? "Dispatch: Bus is FULL. Do not pick up any more passengers until current ones reach their destination."
+      : await getNarration(s.selectedDriver, s.terrain, isRest);
     setNarration(msg);
 
     const waitTime = isRest ? 50000 : 5000;
+    
     setTimeout(() => {
       setGameState(prev => {
-        const nextDist = prev.currentDistance + (isRest ? 5000 : (Math.random() * 2000 + 1000));
+        const nextDist = prev.currentDistance + (isRest ? 5000 : (Math.random() * 3000 + 2000));
+        
+        let newPassengers = prev.passengers;
+        let joined = 0;
+        if (!busIsFull) {
+          joined = Math.floor(Math.random() * 10) + 1;
+          newPassengers = Math.min(prev.selectedBus.capacity, prev.passengers + joined);
+        }
+        
+        const left = Math.floor(Math.random() * (newPassengers / 2 + 1));
+        newPassengers = Math.max(0, newPassengers - left);
+
         return {
             ...prev,
             isStopped: false,
+            passengers: newPassengers,
+            isFull: newPassengers >= prev.selectedBus.capacity,
             lastStopDistance: prev.currentDistance,
             nextStopDistance: nextDist,
-            money: prev.money + (Math.floor(Math.random() * 50) + 20)
+            money: prev.money + (joined * 5) // Earn money per passenger
         };
       });
-      setNarration("");
+      if (!busIsFull) setNarration("");
     }, waitTime);
   }, []);
 
@@ -95,30 +145,6 @@ const App: React.FC = () => {
     setNarration(msg);
     setTimeout(() => setNarration(""), 6000);
   }, []);
-
-  useEffect(() => {
-    if (gameState.gameStatus !== 'DRIVING') return;
-
-    const weatherInterval = setInterval(() => {
-      const weathers = [WeatherType.CLEAR, WeatherType.RAIN, WeatherType.FOG];
-      const nextWeather = weathers[Math.floor(Math.random() * weathers.length)];
-      setGameState(prev => ({ 
-        ...prev, 
-        weather: nextWeather,
-        wipersActive: nextWeather === WeatherType.RAIN ? true : prev.wipersActive 
-      }));
-      
-      const weatherMsgs: Record<WeatherType, string> = {
-        [WeatherType.CLEAR]: "Skies are clearing up. Have a pleasant drive!",
-        [WeatherType.RAIN]: "Rain detected. Activating wipers.",
-        [WeatherType.FOG]: "Heavy fog ahead. Visibility is reduced."
-      };
-      setNarration(weatherMsgs[nextWeather]);
-      setTimeout(() => setNarration(""), 4000);
-    }, 30000);
-
-    return () => clearInterval(weatherInterval);
-  }, [gameState.gameStatus]);
 
   useEffect(() => {
     if (gameState.gameStatus !== 'DRIVING') return;
@@ -139,34 +165,41 @@ const App: React.FC = () => {
           newSpeed = Math.max(0, prev.speed - 0.05);
         }
 
-        // Steering animation logic
+        const targetCurve = Math.sin(prev.currentDistance / 1000) * 1.5;
+        const curveInterpolation = (targetCurve - prev.roadCurve) * 0.02;
+
         let newAngle = prev.steeringAngle;
+        const steeringSpeed = 2;
         if (keysPressed.current['a'] || keysPressed.current['arrowleft']) {
-          newAngle = Math.max(-45, prev.steeringAngle - 3);
+          newAngle = Math.max(-45, prev.steeringAngle - steeringSpeed);
         } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
-          newAngle = Math.min(45, prev.steeringAngle + 3);
+          newAngle = Math.min(45, prev.steeringAngle + steeringSpeed);
         } else {
-          newAngle *= 0.9; // Return to center
+          newAngle *= 0.92; // Smoother return to center
         }
 
-        const distanceInc = newSpeed * 0.1;
+        const distanceInc = newSpeed * 0.15;
         const newDistance = prev.currentDistance + distanceInc;
 
-        // Traffic Light Logic
         if (prev.terrain === TerrainType.CITY) {
           const lightIdx = Math.round(newDistance / TRAFFIC_LIGHT_DISTANCE);
           const lightDist = lightIdx * TRAFFIC_LIGHT_DISTANCE;
           const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
           const isRed = cycleTime < 6000;
           
-          // Detect if running a red light
           if (isRed && Math.abs(newDistance - lightDist) < 30 && newSpeed > 5) {
              if (Math.abs(newDistance - lastViolationDist.current) > 200) {
                lastViolationDist.current = newDistance;
-               setNarration("Dispatch: That's a red light violation! Please observe traffic rules.");
-               setTimeout(() => setNarration(""), 4000);
+               setTimeout(() => triggerPenalty("Red Light Violation", 100), 0);
              }
           }
+        }
+
+        if (Math.abs(newDistance - prev.nextStopDistance) < 50 && newSpeed > 30) {
+           if (Math.abs(newDistance - lastViolationDist.current) > 500) {
+              lastViolationDist.current = newDistance;
+              setTimeout(() => triggerPenalty("Dangerous Speed at Zebra Crossing", 50), 0);
+           }
         }
 
         const isNearStop = Math.abs(newDistance - prev.nextStopDistance) < 50;
@@ -195,13 +228,16 @@ const App: React.FC = () => {
           currentDistance: newDistance,
           terrain,
           road,
-          steeringAngle: newAngle
+          steeringAngle: newAngle,
+          roadCurve: prev.roadCurve + curveInterpolation,
+          currentCurve: targetCurve,
+          isFull: prev.passengers >= prev.selectedBus.capacity
         };
       });
     }, 16);
 
     return () => clearInterval(interval);
-  }, [gameState.gameStatus, triggerStop]);
+  }, [gameState.gameStatus, triggerStop, triggerPenalty]);
 
   const handleStartGame = (driver: Driver, bus: Bus) => {
     setGameState({
@@ -211,7 +247,7 @@ const App: React.FC = () => {
       gameStatus: 'DRIVING'
     });
     setShowMenu(false);
-    setNarration(`Welcome aboard, ${driver.name}. Let's head out from the city center!`);
+    setNarration(`Dispatch: Welcome aboard, ${driver.name}. Good luck on your city-to-village route!`);
     setTimeout(() => setNarration(""), 5000);
   };
 

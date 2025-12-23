@@ -47,6 +47,12 @@ export enum WeatherType {
   FOG = 'Fog'
 }
 
+export enum IndicatorType {
+  OFF = 'OFF',
+  LEFT = 'LEFT',
+  RIGHT = 'RIGHT'
+}
+
 export interface GameState {
   currentDistance: number;
   speed: number;
@@ -66,6 +72,12 @@ export interface GameState {
   headlightsOn: boolean;
   wipersActive: boolean;
   steeringAngle: number;
+  indicatorStatus: IndicatorType;
+  // 3D and Accountability
+  roadCurve: number;
+  currentCurve: number;
+  totalViolations: number;
+  isFull: boolean;
 }
 
 export interface StopInfo {
