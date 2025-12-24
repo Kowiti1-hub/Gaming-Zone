@@ -4,26 +4,9 @@ import Menu from './components/Menu';
 import GameCanvas from './components/GameCanvas';
 import HUD from './components/HUD';
 import { 
-  GameState, 
-  Driver, 
-  Bus, 
-  TerrainType, 
-  RoadType, 
-  WeatherType,
-  IndicatorType,
-  GearType
+  GameState, Driver, Bus, TerrainType, RoadType, WeatherType, IndicatorType, GearType, TransmissionType, CameraView 
 } from './types';
-import { 
-  CITY_THRESHOLD, 
-  SUBURBAN_THRESHOLD, 
-  VILLAGE_THRESHOLD, 
-  DRIVERS,
-  BUSES,
-  TRAFFIC_LIGHT_DISTANCE,
-  TRAFFIC_LIGHT_CYCLE,
-  SPEED_LIMITS
-} from './constants';
-import { getNarration, editImageWithAI } from './services/geminiService';
+import { BUSES, DRIVERS, SPEED_LIMITS } from './constants';
 import { audioService } from './services/audioService';
 
 const INITIAL_STATE: GameState = {
@@ -48,6 +31,8 @@ const INITIAL_STATE: GameState = {
   indicatorStatus: IndicatorType.OFF,
   rearViewActive: false,
   gear: GearType.PARK,
+  transmission: TransmissionType.AUTOMATIC,
+  cameraView: CameraView.CHASE,
   handbrakeActive: true,
   roadCurve: 0,
   currentCurve: 0,
@@ -56,55 +41,48 @@ const INITIAL_STATE: GameState = {
   bodyRoll: 0,
   bodyPitch: 0,
   suspensionY: 0,
+  rpm: 800
 };
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
-  const [narration, setNarration] = useState<string>("");
   const [showMenu, setShowMenu] = useState(true);
-  const [aiEditedImage, setAiEditedImage] = useState<string | null>(null);
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
-  
   const stateRef = useRef(gameState);
   stateRef.current = gameState;
-
   const keysPressed = useRef<{ [key: string]: boolean }>({});
-  const lastViolationDist = useRef<number>(0);
-  const lastWeatherChangeDist = useRef<number>(0);
-  const speedingFrames = useRef<number>(0);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { 
+    const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      keysPressed.current[key] = true; 
-      
-      if (key === 'q') {
-        setGameState(prev => ({
-          ...prev,
-          indicatorStatus: prev.indicatorStatus === IndicatorType.LEFT ? IndicatorType.OFF : IndicatorType.LEFT
-        }));
-      } else if (key === 'e') {
-        setGameState(prev => ({
-          ...prev,
-          indicatorStatus: prev.indicatorStatus === IndicatorType.RIGHT ? IndicatorType.OFF : IndicatorType.RIGHT
-        }));
-      } else if (key === 'r') {
-        setGameState(prev => ({
-          ...prev,
-          rearViewActive: !prev.rearViewActive
-        }));
-      } else if (key === 'p') {
-        setGameState(prev => ({
-          ...prev,
-          handbrakeActive: !prev.handbrakeActive
-        }));
-      } else if (key === 'x') {
+      keysPressed.current[key] = true;
+
+      // View Cycle
+      if (key === 'v') {
         setGameState(prev => {
-          const gears = [GearType.PARK, GearType.REVERSE, GearType.NEUTRAL, GearType.DRIVE];
-          const currentIndex = gears.indexOf(prev.gear);
-          const nextIndex = (currentIndex + 1) % gears.length;
-          return { ...prev, gear: gears[nextIndex] };
+          const views = Object.values(CameraView);
+          const next = views[(views.indexOf(prev.cameraView) + 1) % views.length];
+          return { ...prev, cameraView: next };
         });
+      }
+
+      // Manual Gear Selection
+      if (stateRef.current.transmission === TransmissionType.MANUAL) {
+        if (key === '1') setGameState(p => ({ ...p, gear: GearType.G1 }));
+        if (key === '2') setGameState(p => ({ ...p, gear: GearType.G2 }));
+        if (key === '3') setGameState(p => ({ ...p, gear: GearType.G3 }));
+        if (key === '4') setGameState(p => ({ ...p, gear: GearType.G4 }));
+        if (key === '5') setGameState(p => ({ ...p, gear: GearType.G5 }));
+        if (key === '0') setGameState(p => ({ ...p, gear: GearType.NEUTRAL }));
+        if (key === 'r') setGameState(p => ({ ...p, gear: GearType.REVERSE }));
+      }
+
+      // Transmission Toggle
+      if (key === 'm') {
+        setGameState(prev => ({
+          ...prev,
+          transmission: prev.transmission === TransmissionType.AUTOMATIC ? TransmissionType.MANUAL : TransmissionType.AUTOMATIC,
+          gear: GearType.PARK
+        }));
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = false; };
@@ -116,300 +94,71 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const triggerPenalty = useCallback((reason: string, amount: number) => {
-    setGameState(prev => ({
-      ...prev,
-      money: Math.max(0, prev.money - amount),
-      totalViolations: prev.totalViolations + 1
-    }));
-    setNarration(`OFFICIAL CITATION: ${reason}. Penalty: $${amount} deducted.`);
-    setTimeout(() => setNarration(""), 5000);
-  }, []);
-
-  const triggerStop = useCallback(async (isRest: boolean) => {
-    const s = stateRef.current;
-    if (s.isStopped) return;
-
-    const busIsFull = s.passengers >= s.selectedBus.capacity;
-    setGameState(prev => ({ ...prev, isStopped: true, speed: 0, bodyPitch: 0, bodyRoll: 0 }));
-    
-    const msg = busIsFull 
-      ? "Dispatch: Bus is FULL. Do not pick up any more passengers until current ones reach their destination."
-      : await getNarration(s.selectedDriver, s.terrain, isRest);
-    setNarration(msg);
-
-    const waitTime = isRest ? 50000 : 5000;
-    
-    setTimeout(() => {
-      setGameState(prev => {
-        const nextDist = prev.currentDistance + (isRest ? 5000 : (Math.random() * 3000 + 2000));
-        let newPassengers = prev.passengers;
-        let joined = 0;
-        if (!busIsFull) {
-          joined = Math.floor(Math.random() * 10) + 1;
-          newPassengers = Math.min(prev.selectedBus.capacity, prev.passengers + joined);
-        }
-        const left = Math.floor(Math.random() * (newPassengers / 2 + 1));
-        newPassengers = Math.max(0, newPassengers - left);
-
-        return {
-            ...prev,
-            isStopped: false,
-            passengers: newPassengers,
-            isFull: newPassengers >= prev.selectedBus.capacity,
-            lastStopDistance: prev.currentDistance,
-            nextStopDistance: nextDist,
-            money: prev.money + (joined * 5)
-        };
-      });
-      if (!busIsFull) setNarration("");
-    }, waitTime);
-  }, []);
-
-  const handleRadioCheck = useCallback(async () => {
-    const s = stateRef.current;
-    const msg = await getNarration(s.selectedDriver, s.terrain, false);
-    setNarration(msg);
-    setTimeout(() => setNarration(""), 6000);
-  }, []);
-
-  const handleGearChange = useCallback((gear: GearType) => {
-    setGameState(prev => ({ ...prev, gear }));
-  }, []);
-
-  const handleAIImageEdit = async (prompt: string) => {
-    const canvas = document.querySelector('canvas');
-    if (!canvas) return;
-
-    setIsAiProcessing(true);
-    // Convert canvas to base64 (stripped of prefix)
-    const base64 = canvas.toDataURL('image/png').split(',')[1];
-    
-    const result = await editImageWithAI(base64, prompt);
-    if (result) {
-      setAiEditedImage(result);
-    }
-    setIsAiProcessing(false);
-  };
-
   useEffect(() => {
-    if (gameState.gameStatus !== 'DRIVING' || isAiProcessing || aiEditedImage) return;
+    if (gameState.gameStatus !== 'DRIVING') return;
 
     const interval = setInterval(() => {
+      const s = stateRef.current;
       const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
       const isBraking = keysPressed.current['s'] || keysPressed.current['arrowdown'];
-      const s = stateRef.current;
-      
-      audioService.update(
-        s.speed, 
-        isAccelerating, 
-        s.selectedBus.size,
-        s.terrain,
-        s.indicatorStatus,
-        s.isStopped,
-        s.weather
-      );
 
       setGameState(prev => {
         if (prev.isStopped) return prev;
 
-        let newWeather = prev.weather;
-        let newRainIntensity = prev.rainIntensity;
+        // Gear Check for Movement
+        const isForward = prev.gear === GearType.DRIVE || [GearType.G1, GearType.G2, GearType.G3, GearType.G4, GearType.G5].includes(prev.gear);
+        const isReverse = prev.gear === GearType.REVERSE;
+        const canMove = !prev.handbrakeActive && (isForward || isReverse);
 
-        if (prev.currentDistance - lastWeatherChangeDist.current > 4000) {
-          lastWeatherChangeDist.current = prev.currentDistance;
-          const rand = Math.random();
-          if (rand < 0.1) {
-            newWeather = WeatherType.RAIN;
-            newRainIntensity = 0.3 + Math.random() * 0.7; 
-          }
-          else if (rand < 0.2) newWeather = WeatherType.FOG;
-          else {
-            newWeather = WeatherType.CLEAR;
-            newRainIntensity = 0.5;
-          }
-          
-          if (newWeather !== prev.weather) {
-            setNarration(`Dispatch: Weather advisory - ${newWeather} conditions ahead. Exercise caution.`);
-            setTimeout(() => setNarration(""), 4000);
-          }
-        }
-
-        if (prev.weather === WeatherType.RAIN) {
-          newRainIntensity = Math.max(0.1, Math.min(1.0, prev.rainIntensity + (Math.random() - 0.5) * 0.01));
-        }
-
-        const isRaining = prev.weather === WeatherType.RAIN;
-        const isFoggy = prev.weather === WeatherType.FOG;
-        const traction = isRaining ? 0.6 : (isFoggy ? 0.85 : 1.0);
-        const engineMax = prev.selectedBus.maxSpeed;
-        const terrainLimit = SPEED_LIMITS[prev.terrain];
-        
-        const logicalMax = isRaining ? engineMax * 0.8 : (isFoggy ? engineMax * 0.9 : engineMax);
-
+        let accel = 0;
         let newSpeed = prev.speed;
-        let accelAmount = 0;
-        
-        // Physical constraints: Handbrake and Gear
-        const canMove = !prev.handbrakeActive && (prev.gear === GearType.DRIVE || prev.gear === GearType.REVERSE);
-        
+        let newRpm = prev.rpm;
+
         if (isAccelerating && canMove) {
-          const accelDirection = prev.gear === GearType.REVERSE ? -1 : 1;
-          accelAmount = prev.selectedBus.acceleration * traction * accelDirection;
-          newSpeed = newSpeed + accelAmount;
-          if (accelDirection > 0) newSpeed = Math.min(logicalMax, newSpeed);
-          else newSpeed = Math.max(-logicalMax * 0.3, newSpeed); 
-        } else if (isBraking) {
-          const brakeForce = isRaining ? prev.selectedBus.acceleration : prev.selectedBus.acceleration * 2;
-          accelAmount = -brakeForce * Math.sign(newSpeed);
-          if (newSpeed > 0) newSpeed = Math.max(0, newSpeed - brakeForce);
-          else if (newSpeed < 0) newSpeed = Math.min(0, newSpeed + brakeForce);
-        } else {
-          if (Math.abs(newSpeed) < 0.1) newSpeed = 0;
-          else {
-            const friction = 0.98;
-            accelAmount = (newSpeed * friction) - newSpeed;
-            newSpeed *= friction;
+          const direction = isReverse ? -1 : 1;
+          accel = prev.selectedBus.acceleration * direction;
+          
+          // Gear Ratios for Manual
+          if (prev.transmission === TransmissionType.MANUAL) {
+            const gearLimits: any = { [GearType.G1]: 20, [GearType.G2]: 45, [GearType.G3]: 70, [GearType.G4]: 95, [GearType.G5]: 130 };
+            const limit = gearLimits[prev.gear] || 0;
+            if (Math.abs(newSpeed) > limit) accel = 0;
+            newRpm = 800 + (Math.abs(newSpeed) % 25) * 150;
           }
-        }
 
-        // --- Physics Simulation ---
-        
-        // 1. Suspension Bounce
-        const terrainRoughness = prev.road === RoadType.OFFROAD ? 1.5 : 0.4;
-        const bounceAmplitude = (Math.abs(newSpeed) / 100) * terrainRoughness;
-        const newSuspensionY = Math.sin(prev.currentDistance * 0.2) * bounceAmplitude;
-
-        // 2. Body Roll
-        const targetRoll = (newSpeed * prev.steeringAngle) * 0.0008;
-        const rollSpring = 0.1;
-        const newBodyRoll = prev.bodyRoll + (targetRoll - prev.bodyRoll) * rollSpring;
-
-        // 3. Body Pitch
-        const targetPitch = -accelAmount * 1.5;
-        const pitchSpring = 0.15;
-        const newBodyPitch = prev.bodyPitch + (targetPitch - prev.bodyPitch) * pitchSpring;
-
-        if (newSpeed > terrainLimit + 5) { 
-          speedingFrames.current += 1;
-          if (speedingFrames.current > 120) {
-            speedingFrames.current = 0;
-            setTimeout(() => triggerPenalty(`Speeding in ${prev.terrain} Zone`, 50), 0);
-          }
+          newSpeed += accel;
         } else {
-          speedingFrames.current = 0;
+          newSpeed *= 0.98;
+          newRpm = Math.max(800, newRpm * 0.95);
         }
 
-        const targetCurve = Math.sin(prev.currentDistance / 1000) * 1.5;
-        const curveInterpolation = (targetCurve - prev.roadCurve) * 0.02;
+        const distInc = Math.abs(newSpeed) * 0.15;
+        const newDistance = prev.currentDistance + distInc;
 
-        let newAngle = prev.steeringAngle;
-        const steeringSpeed = isRaining ? 1.2 : 2;
-        if (keysPressed.current['a'] || keysPressed.current['arrowleft']) {
-          newAngle = Math.max(-45, prev.steeringAngle - steeringSpeed);
-        } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
-          newAngle = Math.min(45, prev.steeringAngle + steeringSpeed);
-        } else {
-          newAngle *= 0.92;
-        }
-
-        const distanceInc = Math.abs(newSpeed) * 0.15;
-        const newDistance = prev.currentDistance + distanceInc;
-
-        if (isRaining && !prev.wipersActive && Math.abs(newSpeed) > 40 && Math.abs(newDistance - lastViolationDist.current) > 3000) {
-          lastViolationDist.current = newDistance;
-          setTimeout(() => triggerPenalty("Driving in Rain without Wipers", 75), 0);
-        }
-
-        const isNearStop = Math.abs(newDistance - prev.nextStopDistance) < 50;
-        if (isNearStop && (keysPressed.current[' '] || Math.abs(newSpeed) < 2)) {
-          const isRest = prev.terrain === TerrainType.VILLAGE;
-          setTimeout(() => triggerStop(isRest), 0);
-          return { ...prev, speed: 0, currentDistance: prev.nextStopDistance, steeringAngle: 0, gear: GearType.PARK, handbrakeActive: true };
-        }
-
-        let terrain = prev.terrain;
-        let road = prev.road;
-        if (newDistance > VILLAGE_THRESHOLD) {
-          terrain = TerrainType.VILLAGE;
-          road = RoadType.OFFROAD;
-        } else if (newDistance > SUBURBAN_THRESHOLD) {
-          terrain = TerrainType.SUBURBAN;
-          road = RoadType.PAVED;
-        } else {
-          terrain = TerrainType.CITY;
-          road = RoadType.PAVED;
-        }
+        // Camera Auto-switching for Reverse
+        let autoView = prev.cameraView;
+        if (isReverse && prev.cameraView === CameraView.CHASE) autoView = CameraView.FRONT;
+        if (!isReverse && prev.cameraView === CameraView.FRONT) autoView = CameraView.CHASE;
 
         return {
           ...prev,
           speed: newSpeed,
           currentDistance: newDistance,
-          terrain,
-          road,
-          weather: newWeather,
-          rainIntensity: newRainIntensity,
-          steeringAngle: newAngle,
-          roadCurve: prev.roadCurve + curveInterpolation,
-          currentCurve: targetCurve,
-          isFull: prev.passengers >= prev.selectedBus.capacity,
-          bodyRoll: newBodyRoll,
-          bodyPitch: newBodyPitch,
-          suspensionY: newSuspensionY
+          rpm: newRpm,
+          cameraView: autoView,
+          steeringAngle: keysPressed.current['a'] ? Math.max(-45, prev.steeringAngle - 2) : (keysPressed.current['d'] ? Math.min(45, prev.steeringAngle + 2) : prev.steeringAngle * 0.9)
         };
       });
     }, 16);
 
     return () => clearInterval(interval);
-  }, [gameState.gameStatus, triggerStop, triggerPenalty, isAiProcessing, aiEditedImage]);
-
-  const handleStartGame = (driver: Driver, bus: Bus) => {
-    audioService.init(); 
-    setGameState({
-      ...INITIAL_STATE,
-      selectedDriver: driver,
-      selectedBus: bus,
-      gameStatus: 'DRIVING'
-    });
-    setShowMenu(false);
-    setNarration(`Dispatch: Welcome aboard, ${driver.name}. Good luck on your city-to-village route!`);
-    setTimeout(() => setNarration(""), 5000);
-  };
-
-  const handleSetRainIntensity = (val: number) => {
-    setGameState(prev => ({ ...prev, rainIntensity: val }));
-  };
+  }, [gameState.gameStatus]);
 
   return (
-    <div className="relative w-screen h-screen bg-slate-950 flex items-center justify-center overflow-hidden">
-      {showMenu && <Menu onStart={handleStartGame} />}
-      
-      <div className="relative">
-        <GameCanvas 
-          state={gameState} 
-          onGearChange={handleGearChange}
-          onHandbrakeToggle={() => setGameState(p => ({ ...p, handbrakeActive: !p.handbrakeActive }))}
-        />
-        {gameState.gameStatus === 'DRIVING' && (
-          <HUD 
-            state={gameState} 
-            narration={narration} 
-            onToggleLights={() => setGameState(p => ({...p, headlightsOn: !p.headlightsOn}))}
-            onToggleWipers={() => setGameState(p => ({...p, wipersActive: !p.wipersActive}))}
-            onToggleRearView={() => setGameState(p => ({...p, rearViewActive: !p.rearViewActive}))}
-            onOpenDoors={() => { if(Math.abs(gameState.speed) < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
-            onRadioCheck={handleRadioCheck}
-            onSetRainIntensity={handleSetRainIntensity}
-            onAIEdit={handleAIImageEdit}
-            isAiProcessing={isAiProcessing}
-            aiResult={aiEditedImage}
-            onCloseAIResult={() => setAiEditedImage(null)}
-          />
-        )}
-      </div>
-
-      <div className="absolute top-0 left-0 w-full h-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none"></div>
-      <div className="absolute bottom-0 left-0 w-full h-4 bg-gradient-to-t from-black/50 to-transparent pointer-events-none"></div>
+    <div className="w-full h-full bg-slate-950 flex items-center justify-center overflow-hidden">
+      {showMenu && <Menu onStart={(d, b) => { setShowMenu(false); setGameState(p => ({ ...p, selectedDriver: d, selectedBus: b, gameStatus: 'DRIVING' })); }} />}
+      <GameCanvas state={gameState} onGearChange={() => {}} onHandbrakeToggle={() => {}} />
+      {!showMenu && <HUD state={gameState} narration="" onToggleLights={() => {}} onToggleWipers={() => {}} onToggleRearView={() => {}} onOpenDoors={() => {}} onRadioCheck={() => {}} onSetRainIntensity={() => {}} onAIEdit={() => {}} isAiProcessing={false} aiResult={null} onCloseAIResult={() => {}} />}
     </div>
   );
 };

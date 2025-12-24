@@ -57,7 +57,27 @@ export enum GearType {
   PARK = 'P',
   REVERSE = 'R',
   NEUTRAL = 'N',
-  DRIVE = 'D'
+  DRIVE = 'D',
+  G1 = '1',
+  G2 = '2',
+  G3 = '3',
+  G4 = '4',
+  G5 = '5'
+}
+
+export enum TransmissionType {
+  AUTOMATIC = 'AUTO',
+  MANUAL = 'MANUAL'
+}
+
+export enum CameraView {
+  CHASE = 'CHASE',
+  TOP = 'TOP',
+  LEFT = 'LEFT',
+  RIGHT = 'RIGHT',
+  FRONT = 'FRONT',
+  REAR_CLOSE = 'REAR_CLOSE',
+  REAR_DIST = 'REAR_DIST'
 }
 
 export interface GameState {
@@ -73,26 +93,26 @@ export interface GameState {
   terrain: TerrainType;
   road: RoadType;
   weather: WeatherType;
-  rainIntensity: number; // 0 to 1
+  rainIntensity: number;
   lastStopDistance: number;
   nextStopDistance: number;
-  // Dashboard states
   headlightsOn: boolean;
   wipersActive: boolean;
   steeringAngle: number;
   indicatorStatus: IndicatorType;
   rearViewActive: boolean;
   gear: GearType;
+  transmission: TransmissionType;
+  cameraView: CameraView;
   handbrakeActive: boolean;
-  // 3D and Accountability
   roadCurve: number;
   currentCurve: number;
   totalViolations: number;
   isFull: boolean;
-  // Physics State
-  bodyRoll: number;      // side-to-side lean
-  bodyPitch: number;     // front-to-back lean
-  suspensionY: number;   // vertical bounce
+  bodyRoll: number;
+  bodyPitch: number;
+  suspensionY: number;
+  rpm: number;
 }
 
 export interface StopInfo {
