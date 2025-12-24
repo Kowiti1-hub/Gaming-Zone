@@ -53,6 +53,9 @@ const INITIAL_STATE: GameState = {
   currentCurve: 0,
   totalViolations: 0,
   isFull: false,
+  bodyRoll: 0,
+  bodyPitch: 0,
+  suspensionY: 0,
 };
 
 const App: React.FC = () => {
@@ -126,7 +129,7 @@ const App: React.FC = () => {
     if (s.isStopped) return;
 
     const busIsFull = s.passengers >= s.selectedBus.capacity;
-    setGameState(prev => ({ ...prev, isStopped: true, speed: 0 }));
+    setGameState(prev => ({ ...prev, isStopped: true, speed: 0, bodyPitch: 0, bodyRoll: 0 }));
     
     const msg = busIsFull 
       ? "Dispatch: Bus is FULL. Do not pick up any more passengers until current ones reach their destination."
@@ -168,11 +171,16 @@ const App: React.FC = () => {
     setTimeout(() => setNarration(""), 6000);
   }, []);
 
+  const handleGearChange = useCallback((gear: GearType) => {
+    setGameState(prev => ({ ...prev, gear }));
+  }, []);
+
   useEffect(() => {
     if (gameState.gameStatus !== 'DRIVING') return;
 
     const interval = setInterval(() => {
       const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
+      const isBraking = keysPressed.current['s'] || keysPressed.current['arrowdown'];
       const s = stateRef.current;
       
       audioService.update(
@@ -223,27 +231,48 @@ const App: React.FC = () => {
         const logicalMax = isRaining ? engineMax * 0.8 : (isFoggy ? engineMax * 0.9 : engineMax);
 
         let newSpeed = prev.speed;
+        let accelAmount = 0;
         
         // Physical constraints: Handbrake and Gear
         const canMove = !prev.handbrakeActive && (prev.gear === GearType.DRIVE || prev.gear === GearType.REVERSE);
         
         if (isAccelerating && canMove) {
           const accelDirection = prev.gear === GearType.REVERSE ? -1 : 1;
-          newSpeed = newSpeed + (prev.selectedBus.acceleration * traction * accelDirection);
-          // Clamp speed based on logical max
+          accelAmount = prev.selectedBus.acceleration * traction * accelDirection;
+          newSpeed = newSpeed + accelAmount;
           if (accelDirection > 0) newSpeed = Math.min(logicalMax, newSpeed);
-          else newSpeed = Math.max(-logicalMax * 0.3, newSpeed); // Slower reverse
-        } else if (keysPressed.current['s'] || keysPressed.current['arrowdown']) {
+          else newSpeed = Math.max(-logicalMax * 0.3, newSpeed); 
+        } else if (isBraking) {
           const brakeForce = isRaining ? prev.selectedBus.acceleration : prev.selectedBus.acceleration * 2;
+          accelAmount = -brakeForce * Math.sign(newSpeed);
           if (newSpeed > 0) newSpeed = Math.max(0, newSpeed - brakeForce);
           else if (newSpeed < 0) newSpeed = Math.min(0, newSpeed + brakeForce);
         } else {
-          // Natural friction
           if (Math.abs(newSpeed) < 0.1) newSpeed = 0;
-          else newSpeed *= 0.98;
+          else {
+            const friction = 0.98;
+            accelAmount = (newSpeed * friction) - newSpeed;
+            newSpeed *= friction;
+          }
         }
 
-        // Speed Limit Enforcement (only for forward motion)
+        // --- Physics Simulation ---
+        
+        // 1. Suspension Bounce
+        const terrainRoughness = prev.road === RoadType.OFFROAD ? 1.5 : 0.4;
+        const bounceAmplitude = (Math.abs(newSpeed) / 100) * terrainRoughness;
+        const newSuspensionY = Math.sin(prev.currentDistance * 0.2) * bounceAmplitude;
+
+        // 2. Body Roll
+        const targetRoll = (newSpeed * prev.steeringAngle) * 0.0008;
+        const rollSpring = 0.1;
+        const newBodyRoll = prev.bodyRoll + (targetRoll - prev.bodyRoll) * rollSpring;
+
+        // 3. Body Pitch
+        const targetPitch = -accelAmount * 1.5;
+        const pitchSpring = 0.15;
+        const newBodyPitch = prev.bodyPitch + (targetPitch - prev.bodyPitch) * pitchSpring;
+
         if (newSpeed > terrainLimit + 5) { 
           speedingFrames.current += 1;
           if (speedingFrames.current > 120) {
@@ -306,7 +335,10 @@ const App: React.FC = () => {
           steeringAngle: newAngle,
           roadCurve: prev.roadCurve + curveInterpolation,
           currentCurve: targetCurve,
-          isFull: prev.passengers >= prev.selectedBus.capacity
+          isFull: prev.passengers >= prev.selectedBus.capacity,
+          bodyRoll: newBodyRoll,
+          bodyPitch: newBodyPitch,
+          suspensionY: newSuspensionY
         };
       });
     }, 16);
@@ -336,7 +368,11 @@ const App: React.FC = () => {
       {showMenu && <Menu onStart={handleStartGame} />}
       
       <div className="relative">
-        <GameCanvas state={gameState} />
+        <GameCanvas 
+          state={gameState} 
+          onGearChange={handleGearChange}
+          onHandbrakeToggle={() => setGameState(p => ({ ...p, handbrakeActive: !p.handbrakeActive }))}
+        />
         {gameState.gameStatus === 'DRIVING' && (
           <HUD 
             state={gameState} 

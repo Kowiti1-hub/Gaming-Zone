@@ -89,6 +89,10 @@ export interface GameState {
   currentCurve: number;
   totalViolations: number;
   isFull: boolean;
+  // Physics State
+  bodyRoll: number;      // side-to-side lean
+  bodyPitch: number;     // front-to-back lean
+  suspensionY: number;   // vertical bounce
 }
 
 export interface StopInfo {

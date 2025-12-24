@@ -1,5 +1,5 @@
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { GameState, TerrainType, RoadType, WeatherType, IndicatorType, GearType } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TRAFFIC_LIGHT_DISTANCE, TRAFFIC_LIGHT_CYCLE } from '../constants';
 
@@ -56,9 +56,8 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
   if (weather === WeatherType.FOG) ctx.globalAlpha = Math.max(0, z * 2 - 0.5);
 
   if (terrain === TerrainType.CITY) {
-    const type = Math.floor(s) % 16; // Increased variety
+    const type = Math.floor(s) % 16;
     
-    // 0-2: Buildings
     if (type < 3) {
       const colors = ['#2d3748', '#1a202c', '#4a5568'];
       const h = (140 + (s % 400)) * scale;
@@ -77,7 +76,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       }
       ctx.globalAlpha = oldAlpha;
     } 
-    // 3: Street Lamp
     else if (type === 3) {
       const h = 100 * scale;
       ctx.fillStyle = '#2d3748';
@@ -93,7 +91,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = '#fff9c4';
       ctx.beginPath(); ctx.arc(bulbX, bulbY, 5 * scale, 0, Math.PI * 2); ctx.fill();
     } 
-    // 4: Traffic Signs
     else if (type === 4) {
       const h = 70 * scale;
       ctx.fillStyle = '#718096';
@@ -128,7 +125,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
         ctx.lineTo(x + signRadius - 8*scale, signY + 4*scale); ctx.stroke();
       }
     } 
-    // 5: Bus Shelter
     else if (type === 5) {
       const sw = 60 * scale;
       const sh = 45 * scale;
@@ -145,7 +141,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = '#744210';
       ctx.fillRect(x - sw/2.5, y - 12 * scale, sw / 1.25, 3 * scale);
     } 
-    // 6: Trash Can
     else if (type === 6) {
       const tw = 12 * scale;
       const th = 18 * scale;
@@ -154,7 +149,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = '#1a202c';
       ctx.fillRect(x - tw/2 + 2*scale, y - th + 2*scale, tw - 4*scale, 2*scale);
     } 
-    // 7: Fire Hydrant
     else if (type === 7) {
       const hw = 8 * scale;
       const hh = 15 * scale;
@@ -165,7 +159,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillRect(x - hw/2 - 2*scale, y - hh + 4*scale, 2*scale, 3*scale);
       ctx.fillRect(x + hw/2, y - hh + 4*scale, 2*scale, 3*scale);
     } 
-    // 8: Billboard
     else if (type === 8) {
       const bw = 100 * scale;
       const bh = 50 * scale;
@@ -183,7 +176,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.textAlign = 'center';
       ctx.fillText("EXPRESS", x, bY - bh/2 + 5*scale);
     } 
-    // 9: Planter
     else if (type === 9) {
       const pw = 30 * scale;
       const ph = 10 * scale;
@@ -196,7 +188,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.arc(x, y - ph - 4*scale, 8*scale, 0, Math.PI*2);
       ctx.fill();
     }
-    // 10: Mailbox (New)
     else if (type === 10) {
       const mw = 14 * scale;
       const mh = 22 * scale;
@@ -204,35 +195,32 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = isRed ? '#e53e3e' : '#3182ce';
       ctx.beginPath(); ctx.roundRect(x - mw/2, y - mh, mw, mh, 2*scale); ctx.fill();
       ctx.fillStyle = '#000';
-      ctx.fillRect(x - mw/2 + 2*scale, y - mh + 4*scale, mw - 4*scale, 1.5*scale); // Slot
+      ctx.fillRect(x - mw/2 + 2*scale, y - mh + 4*scale, mw - 4*scale, 1.5*scale);
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.fillRect(x - mw/2 + 3*scale, y - mh + 8*scale, mw - 6*scale, 8*scale); // Label
+      ctx.fillRect(x - mw/2 + 3*scale, y - mh + 8*scale, mw - 6*scale, 8*scale);
     }
-    // 11: Bollard (New)
     else if (type === 11) {
       const bw = 6 * scale;
       const bh = 14 * scale;
       ctx.fillStyle = '#4a5568';
       ctx.fillRect(x - bw/2, y - bh, bw, bh);
-      ctx.fillStyle = '#f6e05e'; // Reflective band
+      ctx.fillStyle = '#f6e05e'; 
       ctx.fillRect(x - bw/2, y - bh + 2*scale, bw, 2*scale);
       ctx.fillStyle = '#1a202c';
-      ctx.beginPath(); ctx.arc(x, y - bh, bw/2, 0, Math.PI * 2); ctx.fill(); // Top cap
+      ctx.beginPath(); ctx.arc(x, y - bh, bw/2, 0, Math.PI * 2); ctx.fill(); 
     }
-    // 12: Newsstand (New)
     else if (type === 12) {
       const nw = 16 * scale;
       const nh = 25 * scale;
       ctx.fillStyle = '#2d3748';
       ctx.fillRect(x - nw/2, y - nh, nw, nh);
       ctx.fillStyle = '#fff';
-      ctx.fillRect(x - nw/2 + 2*scale, y - nh + 2*scale, nw - 4*scale, nh - 10*scale); // Glass/Display
+      ctx.fillRect(x - nw/2 + 2*scale, y - nh + 2*scale, nw - 4*scale, nh - 10*scale);
       ctx.fillStyle = '#000';
       ctx.font = `bold ${Math.round(4 * scale)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText("NEWS", x, y - nh + 8*scale);
     }
-    // 13: Bicycle Rack (New)
     else if (type === 13) {
       const rw = 40 * scale;
       const rh = 18 * scale;
@@ -246,7 +234,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
         ctx.stroke();
       }
     }
-    // 14+: Benches / Variations
     else {
       const bw = 45 * scale;
       const bh = 15 * scale;
@@ -258,7 +245,6 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillRect(x - bw/2, y - bh - 12 * scale, bw, 5 * scale);
     }
   } else {
-    // Rural Props (Keep existing logic)
     const type = Math.floor(s) % 10;
     if (type === 0 || type === 1) {
       ctx.fillStyle = '#4a2c10'; 
@@ -337,10 +323,23 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
   ctx.restore();
 };
 
-const drawBusInterior = (ctx: CanvasRenderingContext2D, state: GameState) => {
+const SHIFTER_X = CANVAS_WIDTH - 150;
+const SHIFTER_Y = CANVAS_HEIGHT - 60;
+const SHIFTER_RADIUS = 50;
+
+const HANDBRAKE_X = 120;
+const HANDBRAKE_Y = CANVAS_HEIGHT - 50;
+
+const GEAR_POSITIONS: Record<GearType, {dx: number, dy: number}> = {
+  [GearType.PARK]: { dx: -18, dy: -28 },
+  [GearType.REVERSE]: { dx: -18, dy: 18 },
+  [GearType.NEUTRAL]: { dx: 18, dy: -28 },
+  [GearType.DRIVE]: { dx: 18, dy: 18 }
+};
+
+const drawBusInterior = (ctx: CanvasRenderingContext2D, state: GameState, isDraggingShifter: boolean, dragOffset: { x: number, y: number }) => {
   ctx.save();
   
-  // Dashboard Structure
   const dashHeight = 120;
   ctx.fillStyle = '#1a202c';
   ctx.beginPath();
@@ -351,47 +350,82 @@ const drawBusInterior = (ctx: CanvasRenderingContext2D, state: GameState) => {
   ctx.closePath();
   ctx.fill();
   
-  // Add metallic shine/texture
   const grad = ctx.createLinearGradient(0, CANVAS_HEIGHT - 100, 0, CANVAS_HEIGHT);
   grad.addColorStop(0, 'rgba(255,255,255,0.05)');
   grad.addColorStop(1, 'rgba(0,0,0,0.4)');
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // --- Gear Shifter ---
-  const shifterX = CANVAS_WIDTH - 150;
-  const shifterY = CANVAS_HEIGHT - 60;
+  // --- Gear Shifter Assembly ---
+  // Base plate
   ctx.fillStyle = '#2d3748';
-  ctx.beginPath(); ctx.ellipse(shifterX, shifterY, 40, 30, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(SHIFTER_X, SHIFTER_Y, SHIFTER_RADIUS, 35, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 3; ctx.stroke();
   
-  const gearPositions: Record<GearType, {dx: number, dy: number}> = {
-    [GearType.PARK]: { dx: -15, dy: -25 },
-    [GearType.REVERSE]: { dx: -15, dy: 15 },
-    [GearType.NEUTRAL]: { dx: 15, dy: -25 },
-    [GearType.DRIVE]: { dx: 15, dy: 15 }
-  };
-  const pos = gearPositions[state.gear];
-  ctx.strokeStyle = '#718096'; ctx.lineWidth = 8; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(shifterX, shifterY); ctx.lineTo(shifterX + pos.dx, shifterY + pos.dy); ctx.stroke();
+  // Chrome ring
+  ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(SHIFTER_X, SHIFTER_Y, SHIFTER_RADIUS - 5, 30, 0, 0, Math.PI * 2); ctx.stroke();
+
+  // Gates Visuals
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  // Left slot
+  ctx.moveTo(SHIFTER_X - 18, SHIFTER_Y - 28); ctx.lineTo(SHIFTER_X - 18, SHIFTER_Y + 18);
+  // Right slot
+  ctx.moveTo(SHIFTER_X + 18, SHIFTER_Y - 28); ctx.lineTo(SHIFTER_X + 18, SHIFTER_Y + 18);
+  // Cross slot
+  ctx.moveTo(SHIFTER_X - 18, SHIFTER_Y); ctx.lineTo(SHIFTER_X + 18, SHIFTER_Y);
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = '#718096'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText("P", SHIFTER_X - 35, SHIFTER_Y - 25);
+  ctx.fillText("R", SHIFTER_X - 35, SHIFTER_Y + 25);
+  ctx.fillText("N", SHIFTER_X + 35, SHIFTER_Y - 25);
+  ctx.fillText("D", SHIFTER_X + 35, SHIFTER_Y + 25);
+
+  // Lever Position
+  const snappedPos = GEAR_POSITIONS[state.gear];
+  const leverX = isDraggingShifter ? dragOffset.x : snappedPos.dx;
+  const leverY = isDraggingShifter ? dragOffset.y : snappedPos.dy;
+
+  // Lever Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.arc(SHIFTER_X + leverX + 5, SHIFTER_Y + leverY + 5, 12, 0, Math.PI * 2); ctx.fill();
+
+  // Lever Stem
+  ctx.strokeStyle = '#718096'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(SHIFTER_X, SHIFTER_Y); ctx.lineTo(SHIFTER_X + leverX, SHIFTER_Y + leverY); ctx.stroke();
   
-  ctx.fillStyle = '#1a202c';
-  ctx.beginPath(); ctx.arc(shifterX + pos.dx, shifterY + pos.dy, 12, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#cbd5e0'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-  ctx.fillText(state.gear, shifterX + pos.dx, shifterY + pos.dy + 4);
+  // Knob
+  const knobGrad = ctx.createRadialGradient(SHIFTER_X + leverX - 4, SHIFTER_Y + leverY - 4, 0, SHIFTER_X + leverX, SHIFTER_Y + leverY, 15);
+  knobGrad.addColorStop(0, '#4a5568');
+  knobGrad.addColorStop(1, '#1a202c');
+  ctx.fillStyle = knobGrad;
+  ctx.beginPath(); ctx.arc(SHIFTER_X + leverX, SHIFTER_Y + leverY, 15, 0, Math.PI * 2); ctx.fill();
+  
+  // Highlight on knob
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.beginPath(); ctx.arc(SHIFTER_X + leverX - 5, SHIFTER_Y + leverY - 5, 5, 0, Math.PI * 2); ctx.fill();
+
+  // Current Gear indicator on knob
+  if (!isDraggingShifter) {
+    ctx.fillStyle = '#90cdf4'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(state.gear, SHIFTER_X + leverX, SHIFTER_Y + leverY + 4);
+  }
 
   // --- Handbrake Lever ---
-  const brakeX = 120;
-  const brakeY = CANVAS_HEIGHT - 50;
   const brakeAngle = state.handbrakeActive ? -Math.PI / 4 : 0;
   ctx.save();
-  ctx.translate(brakeX, brakeY);
+  ctx.translate(HANDBRAKE_X, HANDBRAKE_Y);
   ctx.rotate(brakeAngle);
   ctx.fillStyle = '#2d3748';
   ctx.fillRect(-6, -40, 12, 45);
   ctx.fillStyle = '#000';
   ctx.fillRect(-7, -45, 14, 15);
-  ctx.fillStyle = '#e53e3e';
+  ctx.fillStyle = state.handbrakeActive ? '#ef4444' : '#e53e3e';
   ctx.beginPath(); ctx.arc(0, -45, 4, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 
@@ -423,11 +457,15 @@ const drawBusInterior = (ctx: CanvasRenderingContext2D, state: GameState) => {
 
 interface GameCanvasProps {
   state: GameState;
+  onGearChange: (gear: GearType) => void;
+  onHandbrakeToggle: () => void;
 }
 
-const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
+const GameCanvas: React.FC<GameCanvasProps> = ({ state, onGearChange, onHandbrakeToggle }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rainParticles = useRef<{ x: number, y: number, speed: number, length: number }[]>([]);
+  const [isDraggingShifter, setIsDraggingShifter] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     rainParticles.current = Array.from({ length: 1000 }, () => ({
@@ -456,14 +494,71 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
       draw3DBus(ctx, state);
       drawSideMirrors(ctx, state);
       drawWindshieldEffects(ctx, state);
-      drawBusInterior(ctx, state);
+      drawBusInterior(ctx, state, isDraggingShifter, dragOffset);
       
       animationFrameId = window.requestAnimationFrame(render);
     };
 
     render();
     return () => window.cancelAnimationFrame(animationFrameId);
-  }, [state]);
+  }, [state, isDraggingShifter, dragOffset]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Check Shifter
+    const distShifter = Math.sqrt(Math.pow(x - SHIFTER_X, 2) + Math.pow(y - SHIFTER_Y, 2));
+    if (distShifter < SHIFTER_RADIUS) {
+      setIsDraggingShifter(true);
+      setDragOffset({ x: x - SHIFTER_X, y: y - SHIFTER_Y });
+      return;
+    }
+
+    // Check Handbrake
+    if (x > HANDBRAKE_X - 25 && x < HANDBRAKE_X + 25 && y > HANDBRAKE_Y - 60 && y < HANDBRAKE_Y + 10) {
+      onHandbrakeToggle();
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingShifter) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const dx = x - SHIFTER_X;
+    const dy = y - SHIFTER_Y;
+
+    // Limit drag to shifter radius
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const scale = dist > SHIFTER_RADIUS ? SHIFTER_RADIUS / dist : 1;
+    const boundedDx = dx * scale;
+    const boundedDy = dy * scale;
+
+    setDragOffset({ x: boundedDx, y: boundedDy });
+
+    // Snap logic
+    let newGear: GearType = state.gear;
+    if (boundedDx < -10) {
+      if (boundedDy < -10) newGear = GearType.PARK;
+      else if (boundedDy > 10) newGear = GearType.REVERSE;
+    } else if (boundedDx > 10) {
+      if (boundedDy < -10) newGear = GearType.NEUTRAL;
+      else if (boundedDy > 10) newGear = GearType.DRIVE;
+    }
+
+    if (newGear !== state.gear) {
+      onGearChange(newGear);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDraggingShifter(false);
+  };
 
   const drawSideMirrors = (ctx: CanvasRenderingContext2D, state: GameState) => {
     const mirrorW = 100;
@@ -601,12 +696,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
         if (Math.abs(segWorldDist - (lightIdx * TRAFFIC_LIGHT_DISTANCE)) < 10) drawTrafficLight(ctx, x + w/2 + 30 * z, y, z, lightIdx);
       }
       
-      // Dynamic Density logic for City
       if (i % (terrain === TerrainType.CITY ? 4 : 6) === 0) {
         const side = (seed(i + Math.floor(currentDistance/1000)) % 2 === 0) ? 1 : -1;
         draw3DProp(ctx, x + (w/2 + 50*z) * side, y, z, terrain, seed(i), weather);
         
-        // Bonus urban density: spawn another prop on the other side in the city
         if (terrain === TerrainType.CITY && seed(i + 123) % 10 > 6) {
            draw3DProp(ctx, x - (w/2 + 50*z) * side, y, z, terrain, seed(i + 456), weather);
         }
@@ -616,15 +709,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
   };
 
   const draw3DBus = (ctx: CanvasRenderingContext2D, state: GameState) => {
-    const { selectedBus, steeringAngle, headlightsOn, indicatorStatus } = state;
+    const { selectedBus, steeringAngle, headlightsOn, indicatorStatus, bodyRoll, bodyPitch, suspensionY } = state;
     const busY = CANVAS_HEIGHT - 30;
     let busW = 280, busH = 160;
     if (selectedBus.size === 'Medium') { busW = 340; busH = 190; }
     if (selectedBus.size === 'Large') { busW = 400; busH = 220; }
+    
     ctx.save();
-    ctx.translate(CANVAS_WIDTH / 2 + steeringAngle * 2.5, busY);
+    ctx.translate(CANVAS_WIDTH / 2 + steeringAngle * 2.5, busY + suspensionY);
+    ctx.rotate(bodyRoll);
+    ctx.transform(1, 0, bodyPitch * 0.5, 1, 0, 0);
+
+    ctx.save();
+    ctx.translate(0, -suspensionY); 
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(0, 10, busW/2, 25, 0, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
     ctx.fillStyle = selectedBus.color;
     ctx.beginPath(); ctx.roundRect(-busW/2, -busH, busW, busH, 20); ctx.fill();
     ctx.fillStyle = '#1a202c'; ctx.fillRect(-busW/2 + 10, -busH + 10, busW - 20, busH/1.4);
@@ -633,8 +734,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     ctx.fillStyle = lightColor;
     ctx.beginPath(); ctx.arc(-busW/2 + 50, -40, 25, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(busW/2 - 50, -40, 25, 0, Math.PI*2); ctx.fill();
-    if (indicatorStatus === IndicatorType.LEFT && blink) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(-busW/2 + 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); }
-    if (indicatorStatus === IndicatorType.RIGHT && blink) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(busW/2 - 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); }
+    
+    if (indicatorStatus === IndicatorType.LEFT && blink) { 
+      ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(-busW/2 + 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); 
+    }
+    if (indicatorStatus === IndicatorType.RIGHT && blink) { 
+      ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(busW/2 - 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); 
+    }
+    
     ctx.restore();
   };
 
@@ -661,14 +768,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
   };
 
   const drawWindshieldEffects = (ctx: CanvasRenderingContext2D, state: GameState) => {
-    const { weather, wipersActive, selectedBus, steeringAngle, rainIntensity } = state;
+    const { weather, wipersActive, selectedBus, steeringAngle, rainIntensity, suspensionY } = state;
     if (weather !== WeatherType.RAIN && weather !== WeatherType.FOG) return;
     const centerX = CANVAS_WIDTH / 2 + steeringAngle * 2.5;
-    const busY = CANVAS_HEIGHT - 30;
+    const busY = CANVAS_HEIGHT - 30 + suspensionY;
     let busW = 280, busH = 160;
     if (selectedBus.size === 'Medium') { busW = 340; busH = 190; }
     if (selectedBus.size === 'Large') { busW = 400; busH = 220; }
     const glassX = centerX - busW/2 + 15, glassY = busY - busH + 15, glassW = busW - 30, glassH = busH/1.5;
+    
     ctx.save();
     if (weather === WeatherType.FOG) { 
       ctx.fillStyle = 'rgba(203, 213, 224, 0.15)'; 
@@ -692,7 +800,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
   };
 
   return (
-    <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border-8 border-slate-900 bg-slate-950" />
+    <canvas 
+      ref={canvasRef} 
+      width={CANVAS_WIDTH} 
+      height={CANVAS_HEIGHT} 
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      className="rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] border-8 border-slate-900 bg-slate-950 cursor-crosshair" 
+    />
   );
 };
 
