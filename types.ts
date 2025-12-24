@@ -53,6 +53,13 @@ export enum IndicatorType {
   RIGHT = 'RIGHT'
 }
 
+export enum GearType {
+  PARK = 'P',
+  REVERSE = 'R',
+  NEUTRAL = 'N',
+  DRIVE = 'D'
+}
+
 export interface GameState {
   currentDistance: number;
   speed: number;
@@ -75,6 +82,8 @@ export interface GameState {
   steeringAngle: number;
   indicatorStatus: IndicatorType;
   rearViewActive: boolean;
+  gear: GearType;
+  handbrakeActive: boolean;
   // 3D and Accountability
   roadCurve: number;
   currentCurve: number;

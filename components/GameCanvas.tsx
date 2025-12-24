@@ -1,6 +1,6 @@
 
 import React, { useRef, useEffect } from 'react';
-import { GameState, TerrainType, RoadType, WeatherType, IndicatorType } from '../types';
+import { GameState, TerrainType, RoadType, WeatherType, IndicatorType, GearType } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TRAFFIC_LIGHT_DISTANCE, TRAFFIC_LIGHT_CYCLE } from '../constants';
 
 // Helper functions moved outside component for performance and cleaner scope
@@ -56,22 +56,19 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
   if (weather === WeatherType.FOG) ctx.globalAlpha = Math.max(0, z * 2 - 0.5);
 
   if (terrain === TerrainType.CITY) {
-    const type = Math.floor(s) % 12;
+    const type = Math.floor(s) % 16; // Increased variety
     
-    // 1. Buildings (Types 0-2)
+    // 0-2: Buildings
     if (type < 3) {
       const colors = ['#2d3748', '#1a202c', '#4a5568'];
       const h = (140 + (s % 400)) * scale;
       const w = (70 + (s % 100)) * scale;
       ctx.fillStyle = colors[type];
       ctx.fillRect(x - w/2, y - h, w, h);
-      
-      // Windows with varying light
       ctx.fillStyle = '#f6e05e';
       const oldAlpha = ctx.globalAlpha;
       for (let row = 0; row < 6; row++) {
         for (let col = 0; col < 3; col++) {
-          // Semi-random window light
           if ((s + row * 10 + col) % 5 > 2) {
              ctx.globalAlpha = oldAlpha * 0.4;
              ctx.fillRect(x - w/3 + (col * w/4), y - h + (row * h/8) + 12*scale, w/8, h/12);
@@ -80,41 +77,36 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       }
       ctx.globalAlpha = oldAlpha;
     } 
-    // 2. Street Lamp (Type 3)
+    // 3: Street Lamp
     else if (type === 3) {
       const h = 100 * scale;
       ctx.fillStyle = '#2d3748';
       ctx.fillRect(x - 3 * scale, y - h, 6 * scale, h);
-      // Arm
       ctx.fillRect(x - 3 * scale, y - h, 25 * scale, 4 * scale);
-      
       const bulbX = x + 22 * scale;
       const bulbY = y - h + 2 * scale;
-      
       const lampGlow = ctx.createRadialGradient(bulbX, bulbY, 0, bulbX, bulbY, 30 * scale);
       lampGlow.addColorStop(0, 'rgba(254, 252, 191, 0.4)');
       lampGlow.addColorStop(1, 'rgba(254, 252, 191, 0)');
       ctx.fillStyle = lampGlow;
       ctx.beginPath(); ctx.arc(bulbX, bulbY, 30 * scale, 0, Math.PI * 2); ctx.fill();
-      
       ctx.fillStyle = '#fff9c4';
       ctx.beginPath(); ctx.arc(bulbX, bulbY, 5 * scale, 0, Math.PI * 2); ctx.fill();
     } 
-    // 3. Traffic Signs (Type 4)
+    // 4: Traffic Signs
     else if (type === 4) {
       const h = 70 * scale;
       ctx.fillStyle = '#718096';
       ctx.fillRect(x - 2 * scale, y - h, 4 * scale, h);
       const signRadius = 14 * scale;
       const signY = y - h - signRadius;
-      
       const signType = Math.floor(s) % 4;
-      if (signType === 0) { // Speed Limit
+      if (signType === 0) {
         ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e53e3e'; ctx.lineWidth = 3 * scale;
         ctx.beginPath(); ctx.arc(x, signY, signRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#000'; ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`; ctx.textAlign = 'center';
         ctx.fillText("60", x, signY + 4 * scale);
-      } else if (signType === 1) { // Stop Sign
+      } else if (signType === 1) {
         ctx.fillStyle = '#e53e3e'; ctx.beginPath();
         for(let a=0; a<8; a++) {
           const angle = (a * Math.PI) / 4 + Math.PI/8;
@@ -125,10 +117,10 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
         ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(6 * scale)}px sans-serif`; ctx.textAlign = 'center';
         ctx.fillText("STOP", x, signY + 3 * scale);
-      } else if (signType === 2) { // No Entry
+      } else if (signType === 2) {
         ctx.fillStyle = '#e53e3e'; ctx.beginPath(); ctx.arc(x, signY, signRadius, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff'; ctx.fillRect(x - signRadius + 4*scale, signY - 2*scale, signRadius*2 - 8*scale, 4*scale);
-      } else { // One Way
+      } else {
         ctx.fillStyle = '#3182ce'; ctx.fillRect(x - signRadius, signY - signRadius, signRadius*2, signRadius*2);
         ctx.fillStyle = '#fff'; ctx.beginPath();
         ctx.moveTo(x - signRadius + 4*scale, signY); ctx.lineTo(x + signRadius - 4*scale, signY);
@@ -136,31 +128,24 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
         ctx.lineTo(x + signRadius - 8*scale, signY + 4*scale); ctx.stroke();
       }
     } 
-    // 4. Bus Shelter (Type 5)
+    // 5: Bus Shelter
     else if (type === 5) {
       const sw = 60 * scale;
       const sh = 45 * scale;
-      // Frame
       ctx.fillStyle = '#2d3748';
-      ctx.fillRect(x - sw/2, y - sh, sw, 3 * scale); // Roof
-      ctx.fillRect(x - sw/2, y - sh, 4 * scale, sh); // Left
-      ctx.fillRect(x + sw/2 - 4 * scale, y - sh, 4 * scale, sh); // Right
-      
-      // Glass Back
+      ctx.fillRect(x - sw/2, y - sh, sw, 3 * scale);
+      ctx.fillRect(x - sw/2, y - sh, 4 * scale, sh);
+      ctx.fillRect(x + sw/2 - 4 * scale, y - sh, 4 * scale, sh);
       ctx.fillStyle = 'rgba(144, 205, 244, 0.3)';
       ctx.fillRect(x - sw/2 + 4 * scale, y - sh + 3 * scale, sw - 8 * scale, sh - 3 * scale);
-      
-      // Ad/Map Panel
       ctx.fillStyle = '#fff';
       ctx.fillRect(x - sw/2 + 6 * scale, y - sh + 8 * scale, 12 * scale, 20 * scale);
       ctx.fillStyle = '#3182ce';
       ctx.fillRect(x - sw/2 + 8 * scale, y - sh + 10 * scale, 8 * scale, 2 * scale);
-      
-      // Bench inside
       ctx.fillStyle = '#744210';
       ctx.fillRect(x - sw/2.5, y - 12 * scale, sw / 1.25, 3 * scale);
     } 
-    // 5. Trash Can (Type 6)
+    // 6: Trash Can
     else if (type === 6) {
       const tw = 12 * scale;
       const th = 18 * scale;
@@ -169,7 +154,7 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = '#1a202c';
       ctx.fillRect(x - tw/2 + 2*scale, y - th + 2*scale, tw - 4*scale, 2*scale);
     } 
-    // 6. Fire Hydrant (Type 7)
+    // 7: Fire Hydrant
     else if (type === 7) {
       const hw = 8 * scale;
       const hh = 15 * scale;
@@ -179,20 +164,17 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.fillStyle = '#c53030';
       ctx.fillRect(x - hw/2 - 2*scale, y - hh + 4*scale, 2*scale, 3*scale);
       ctx.fillRect(x + hw/2, y - hh + 4*scale, 2*scale, 3*scale);
-    }
-    // 7. Billboard (Type 8)
+    } 
+    // 8: Billboard
     else if (type === 8) {
       const bw = 100 * scale;
       const bh = 50 * scale;
       const bY = y - 90 * scale;
-      // Pillars
       ctx.fillStyle = '#4a5568';
       ctx.fillRect(x - bw/3, y - 90*scale, 5 * scale, 90 * scale);
       ctx.fillRect(x + bw/3 - 5*scale, y - 90*scale, 5 * scale, 90 * scale);
-      // Board
       ctx.fillStyle = '#2d3748';
       ctx.fillRect(x - bw/2, bY - bh, bw, bh);
-      // Ad Content
       const adColors = ['#f6ad55', '#4fd1c5', '#63b3ed'];
       ctx.fillStyle = adColors[Math.floor(s) % 3];
       ctx.fillRect(x - bw/2 + 5*scale, bY - bh + 5*scale, bw - 10*scale, bh - 10*scale);
@@ -200,8 +182,8 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText("EXPRESS", x, bY - bh/2 + 5*scale);
-    }
-    // 8. Planter (Type 9)
+    } 
+    // 9: Planter
     else if (type === 9) {
       const pw = 30 * scale;
       const ph = 10 * scale;
@@ -214,37 +196,228 @@ const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: numb
       ctx.arc(x, y - ph - 4*scale, 8*scale, 0, Math.PI*2);
       ctx.fill();
     }
-    // 9. Bench (Type 10+)
+    // 10: Mailbox (New)
+    else if (type === 10) {
+      const mw = 14 * scale;
+      const mh = 22 * scale;
+      const isRed = (s % 10) > 7;
+      ctx.fillStyle = isRed ? '#e53e3e' : '#3182ce';
+      ctx.beginPath(); ctx.roundRect(x - mw/2, y - mh, mw, mh, 2*scale); ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x - mw/2 + 2*scale, y - mh + 4*scale, mw - 4*scale, 1.5*scale); // Slot
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(x - mw/2 + 3*scale, y - mh + 8*scale, mw - 6*scale, 8*scale); // Label
+    }
+    // 11: Bollard (New)
+    else if (type === 11) {
+      const bw = 6 * scale;
+      const bh = 14 * scale;
+      ctx.fillStyle = '#4a5568';
+      ctx.fillRect(x - bw/2, y - bh, bw, bh);
+      ctx.fillStyle = '#f6e05e'; // Reflective band
+      ctx.fillRect(x - bw/2, y - bh + 2*scale, bw, 2*scale);
+      ctx.fillStyle = '#1a202c';
+      ctx.beginPath(); ctx.arc(x, y - bh, bw/2, 0, Math.PI * 2); ctx.fill(); // Top cap
+    }
+    // 12: Newsstand (New)
+    else if (type === 12) {
+      const nw = 16 * scale;
+      const nh = 25 * scale;
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x - nw/2, y - nh, nw, nh);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - nw/2 + 2*scale, y - nh + 2*scale, nw - 4*scale, nh - 10*scale); // Glass/Display
+      ctx.fillStyle = '#000';
+      ctx.font = `bold ${Math.round(4 * scale)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText("NEWS", x, y - nh + 8*scale);
+    }
+    // 13: Bicycle Rack (New)
+    else if (type === 13) {
+      const rw = 40 * scale;
+      const rh = 18 * scale;
+      ctx.strokeStyle = '#cbd5e0';
+      ctx.lineWidth = 2.5 * scale;
+      for (let i = 0; i < 4; i++) {
+        const ox = x - rw/2 + (i * rw/3);
+        ctx.beginPath(); ctx.moveTo(ox, y);
+        ctx.quadraticCurveTo(ox, y - rh*1.5, ox + 4*scale, y - rh*1.5);
+        ctx.lineTo(ox + 4*scale, y);
+        ctx.stroke();
+      }
+    }
+    // 14+: Benches / Variations
     else {
       const bw = 45 * scale;
       const bh = 15 * scale;
-      // Legs
       ctx.fillStyle = '#2d3748';
       ctx.fillRect(x - bw/2.5, y - bh, 3 * scale, bh);
       ctx.fillRect(x + bw/2.5 - 3 * scale, y - bh, 3 * scale, bh);
-      // Seat
-      ctx.fillStyle = '#744210';
+      ctx.fillStyle = (type === 14) ? '#744210' : '#2d3748';
       ctx.fillRect(x - bw/2, y - bh, bw, 4 * scale);
-      // Backrest
       ctx.fillRect(x - bw/2, y - bh - 12 * scale, bw, 5 * scale);
     }
-  } 
-  // Rural Props
-  else {
-    const type = Math.floor(s) % 5;
-    if (type === 0 || type === 1) { // Trees
-      ctx.fillStyle = '#4a2c10'; ctx.fillRect(x - 3*scale, y - 25*scale, 6*scale, 25*scale);
-      ctx.fillStyle = '#22543d'; ctx.beginPath(); ctx.arc(x, y - 45*scale, 30*scale, 0, Math.PI*2); ctx.fill();
-    } else if (type === 2) { // Small Hut
-      ctx.fillStyle = '#8b4513'; ctx.fillRect(x - 20*scale, y - 30*scale, 40*scale, 30*scale);
-      ctx.fillStyle = '#d69e2e'; ctx.beginPath(); ctx.moveTo(x - 25*scale, y - 30*scale); ctx.lineTo(x, y - 55*scale); ctx.lineTo(x + 25*scale, y - 30*scale); ctx.fill();
-    } else if (type === 3) { // Shed
-      ctx.fillStyle = '#4a5568'; ctx.fillRect(x - 20*scale, y - 35*scale, 40*scale, 35*scale);
-      ctx.fillStyle = '#718096'; ctx.beginPath(); ctx.moveTo(x - 22*scale, y - 35*scale); ctx.lineTo(x + 22*scale, y - 42*scale); ctx.lineTo(x + 22*scale, y - 35*scale); ctx.fill();
-    } else { // Barn
-       ctx.fillStyle = '#9b2c2c'; ctx.fillRect(x - 15*scale, y - 45*scale, 30*scale, 45*scale);
+  } else {
+    // Rural Props (Keep existing logic)
+    const type = Math.floor(s) % 10;
+    if (type === 0 || type === 1) {
+      ctx.fillStyle = '#4a2c10'; 
+      ctx.fillRect(x - 3*scale, y - 25*scale, 6*scale, 25*scale);
+      ctx.fillStyle = '#22543d'; 
+      ctx.beginPath(); ctx.arc(x, y - 45*scale, 30*scale, 0, Math.PI*2); ctx.fill();
+    } else if (type === 2) {
+      ctx.fillStyle = '#8b4513'; 
+      ctx.fillRect(x - 22*scale, y - 32*scale, 44*scale, 32*scale);
+      ctx.fillStyle = '#3e2723';
+      ctx.fillRect(x - 6*scale, y - 20*scale, 12*scale, 20*scale);
+      ctx.fillStyle = '#d69e2e'; 
+      ctx.beginPath(); ctx.moveTo(x - 28*scale, y - 32*scale); ctx.lineTo(x, y - 60*scale); ctx.lineTo(x + 28*scale, y - 32*scale); ctx.fill();
+    } else if (type === 3) {
+      ctx.fillStyle = '#4a5568'; 
+      ctx.fillRect(x - 20*scale, y - 35*scale, 40*scale, 35*scale);
+      ctx.fillStyle = '#718096'; 
+      ctx.beginPath(); ctx.moveTo(x - 22*scale, y - 35*scale); ctx.lineTo(x + 22*scale, y - 42*scale); ctx.lineTo(x + 22*scale, y - 35*scale); ctx.fill();
+    } else if (type === 4) {
+       ctx.fillStyle = '#9b2c2c'; 
+       ctx.fillRect(x - 25*scale, y - 50*scale, 50*scale, 50*scale);
+       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1 * scale;
+       ctx.strokeRect(x - 15*scale, y - 35*scale, 30*scale, 35*scale);
+       ctx.beginPath(); ctx.moveTo(x - 15*scale, y - 35*scale); ctx.lineTo(x + 15*scale, y); ctx.stroke();
+       ctx.beginPath(); ctx.moveTo(x + 15*scale, y - 35*scale); ctx.lineTo(x - 15*scale, y); ctx.stroke();
+       ctx.fillStyle = '#742a2a';
+       ctx.beginPath(); ctx.moveTo(x - 28*scale, y - 50*scale); ctx.lineTo(x, y - 75*scale); ctx.lineTo(x + 28*scale, y - 50*scale); ctx.fill();
+    } else if (type === 5) {
+      const fw = 60 * scale;
+      const fh = 20 * scale;
+      ctx.fillStyle = '#5d4037';
+      ctx.fillRect(x - fw/2, y - fh, 3*scale, fh);
+      ctx.fillRect(x, y - fh, 3*scale, fh);
+      ctx.fillRect(x + fw/2 - 3*scale, y - fh, 3*scale, fh);
+      ctx.fillRect(x - fw/2, y - fh + 5*scale, fw, 2*scale);
+      ctx.fillRect(x - fw/2, y - 5*scale, fw, 2*scale);
+    } else if (type === 6) {
+      const bw = 15 * scale;
+      const bh = 12 * scale;
+      ctx.fillStyle = '#f6e05e';
+      ctx.beginPath(); ctx.ellipse(x, y - bh/2, bw, bh, 0, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#d69e2e'; ctx.lineWidth = 0.5 * scale;
+      ctx.beginPath(); ctx.ellipse(x, y - bh/2, bw*0.7, bh*0.7, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x + 10*scale, y - bh/2, bw, bh, 0, 0, Math.PI*2); ctx.fill();
+    } else if (type === 7) {
+      const tw = 25 * scale;
+      const th = 20 * scale;
+      ctx.fillStyle = '#1a202c';
+      ctx.beginPath(); ctx.arc(x - 8*scale, y - 10*scale, 10*scale, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 12*scale, y - 5*scale, 5*scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#e53e3e';
+      ctx.fillRect(x - 5*scale, y - 25*scale, 25*scale, 15*scale);
+      ctx.fillRect(x - 10*scale, y - 18*scale, 10*scale, 10*scale);
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x + 12*scale, y - 35*scale, 2*scale, 10*scale);
+    } else if (type === 8) {
+      const cw = 30 * scale;
+      const ch = 12 * scale;
+      ctx.fillStyle = '#4a5568';
+      ctx.beginPath(); ctx.arc(x - 10*scale, y - 5*scale, 5*scale, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 10*scale, y - 5*scale, 5*scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#795548';
+      ctx.fillRect(x - 15*scale, y - 18*scale, cw, ch);
+      ctx.fillRect(x + 15*scale, y - 12*scale, 15*scale, 2*scale);
+    } else {
+      const tw = 40 * scale;
+      const th = 10 * scale;
+      ctx.fillStyle = '#a0aec0';
+      ctx.fillRect(x - tw/2, y - th, tw, th);
+      ctx.fillStyle = '#4299e1';
+      ctx.fillRect(x - tw/2 + 2*scale, y - th + 2*scale, tw - 4*scale, th - 4*scale);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(x - tw/2 + 5*scale, y - th + 3*scale, 10*scale, 2*scale);
     }
   }
+  ctx.restore();
+};
+
+const drawBusInterior = (ctx: CanvasRenderingContext2D, state: GameState) => {
+  ctx.save();
+  
+  // Dashboard Structure
+  const dashHeight = 120;
+  ctx.fillStyle = '#1a202c';
+  ctx.beginPath();
+  ctx.moveTo(0, CANVAS_HEIGHT);
+  ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT - dashHeight);
+  ctx.quadraticCurveTo(CANVAS_WIDTH / 2, CANVAS_HEIGHT - dashHeight - 40, 0, CANVAS_HEIGHT - dashHeight);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Add metallic shine/texture
+  const grad = ctx.createLinearGradient(0, CANVAS_HEIGHT - 100, 0, CANVAS_HEIGHT);
+  grad.addColorStop(0, 'rgba(255,255,255,0.05)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.4)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // --- Gear Shifter ---
+  const shifterX = CANVAS_WIDTH - 150;
+  const shifterY = CANVAS_HEIGHT - 60;
+  ctx.fillStyle = '#2d3748';
+  ctx.beginPath(); ctx.ellipse(shifterX, shifterY, 40, 30, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2; ctx.stroke();
+  
+  const gearPositions: Record<GearType, {dx: number, dy: number}> = {
+    [GearType.PARK]: { dx: -15, dy: -25 },
+    [GearType.REVERSE]: { dx: -15, dy: 15 },
+    [GearType.NEUTRAL]: { dx: 15, dy: -25 },
+    [GearType.DRIVE]: { dx: 15, dy: 15 }
+  };
+  const pos = gearPositions[state.gear];
+  ctx.strokeStyle = '#718096'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(shifterX, shifterY); ctx.lineTo(shifterX + pos.dx, shifterY + pos.dy); ctx.stroke();
+  
+  ctx.fillStyle = '#1a202c';
+  ctx.beginPath(); ctx.arc(shifterX + pos.dx, shifterY + pos.dy, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#cbd5e0'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(state.gear, shifterX + pos.dx, shifterY + pos.dy + 4);
+
+  // --- Handbrake Lever ---
+  const brakeX = 120;
+  const brakeY = CANVAS_HEIGHT - 50;
+  const brakeAngle = state.handbrakeActive ? -Math.PI / 4 : 0;
+  ctx.save();
+  ctx.translate(brakeX, brakeY);
+  ctx.rotate(brakeAngle);
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(-6, -40, 12, 45);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-7, -45, 14, 15);
+  ctx.fillStyle = '#e53e3e';
+  ctx.beginPath(); ctx.arc(0, -45, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // --- Radio Interface ---
+  const radioX = CANVAS_WIDTH / 2 - 80;
+  const radioY = CANVAS_HEIGHT - 80;
+  const radioW = 160;
+  const radioH = 45;
+  ctx.fillStyle = '#2d3748';
+  ctx.beginPath(); ctx.roundRect(radioX, radioY, radioW, radioH, 5); ctx.fill();
+  ctx.strokeStyle = '#1a202c'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#064e3b'; 
+  ctx.fillRect(radioX + 10, radioY + 8, radioW - 60, radioH - 16);
+  const scrollOffset = (Date.now() / 50) % 200;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(radioX + 12, radioY + 10, radioW - 65, radioH - 20); ctx.clip();
+  ctx.fillStyle = '#10b981'; ctx.font = 'bold 10px monospace';
+  ctx.fillText("CHANNEL 01 - FM DISPATCH SERVICE - ENJOY YOUR JOURNEY - ", radioX + 150 - scrollOffset, radioY + 23);
+  ctx.restore();
+  for(let i=0; i<3; i++) {
+    ctx.fillStyle = '#1a202c';
+    ctx.beginPath(); ctx.arc(radioX + radioW - 25, radioY + 12 + i*10, 3, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle = '#4a5568';
+  ctx.beginPath(); ctx.arc(radioX + radioW - 15, radioY + radioH / 2, 8, 0, Math.PI*2); ctx.fill();
+
   ctx.restore();
 };
 
@@ -257,7 +430,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
   const rainParticles = useRef<{ x: number, y: number, speed: number, length: number }[]>([]);
 
   useEffect(() => {
-    // Increased particle pool for intensity variation
     rainParticles.current = Array.from({ length: 1000 }, () => ({
       x: Math.random() * CANVAS_WIDTH,
       y: Math.random() * CANVAS_HEIGHT,
@@ -284,6 +456,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
       draw3DBus(ctx, state);
       drawSideMirrors(ctx, state);
       drawWindshieldEffects(ctx, state);
+      drawBusInterior(ctx, state);
       
       animationFrameId = window.requestAnimationFrame(render);
     };
@@ -427,9 +600,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
         const lightIdx = Math.round(segWorldDist / TRAFFIC_LIGHT_DISTANCE);
         if (Math.abs(segWorldDist - (lightIdx * TRAFFIC_LIGHT_DISTANCE)) < 10) drawTrafficLight(ctx, x + w/2 + 30 * z, y, z, lightIdx);
       }
+      
+      // Dynamic Density logic for City
       if (i % (terrain === TerrainType.CITY ? 4 : 6) === 0) {
         const side = (seed(i + Math.floor(currentDistance/1000)) % 2 === 0) ? 1 : -1;
         draw3DProp(ctx, x + (w/2 + 50*z) * side, y, z, terrain, seed(i), weather);
+        
+        // Bonus urban density: spawn another prop on the other side in the city
+        if (terrain === TerrainType.CITY && seed(i + 123) % 10 > 6) {
+           draw3DProp(ctx, x - (w/2 + 50*z) * side, y, z, terrain, seed(i + 456), weather);
+        }
       }
       if (Math.abs(z - (1 - (state.nextStopDistance - currentDistance) / 1000)) < 0.02) drawPassengers(ctx, x + (w/2 + 15*z), y, z, state.isFull);
     }
@@ -464,20 +644,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
       ctx.save(); 
       ctx.strokeStyle = `rgba(174, 194, 224, ${0.1 + rainIntensity * 0.4})`;
       ctx.lineWidth = 1 + rainIntensity * 1.5;
-      
-      // Only draw a portion of particles based on intensity
       const particleCount = Math.floor(rainParticles.current.length * rainIntensity);
-      
       for (let i = 0; i < particleCount; i++) {
         const p = rainParticles.current[i];
         const effectiveSpeed = p.speed * (0.8 + rainIntensity * 0.4);
         const effectiveLength = p.length * (0.7 + rainIntensity * 0.6);
-        
         ctx.beginPath(); 
         ctx.moveTo(p.x, p.y); 
         ctx.lineTo(p.x + 1, p.y + effectiveLength); 
         ctx.stroke();
-        
         p.y += effectiveSpeed; 
         if (p.y > CANVAS_HEIGHT) p.y = -effectiveLength;
       }
@@ -495,18 +670,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     if (selectedBus.size === 'Large') { busW = 400; busH = 220; }
     const glassX = centerX - busW/2 + 15, glassY = busY - busH + 15, glassW = busW - 30, glassH = busH/1.5;
     ctx.save();
-    
     if (weather === WeatherType.FOG) { 
       ctx.fillStyle = 'rgba(203, 213, 224, 0.15)'; 
       ctx.fillRect(glassX, glassY, glassW, glassH); 
     } else if (weather === WeatherType.RAIN) {
-      // Visual feedback of rain on windshield
       ctx.fillStyle = `rgba(174, 194, 224, ${rainIntensity * 0.1})`;
       ctx.fillRect(glassX, glassY, glassW, glassH);
     }
-
     if (wipersActive) {
-      const wiperSpeed = 300 - (rainIntensity * 100); // Faster wipers with more rain
+      const wiperSpeed = 300 - (rainIntensity * 100);
       const wiperAngle = Math.sin(Date.now() / wiperSpeed) * 1.2;
       ctx.strokeStyle = '#2d3748'; ctx.lineWidth = 4; ctx.lineCap = 'round';
       const drawWiper = (pivotX: number) => {

@@ -10,7 +10,8 @@ import {
   TerrainType, 
   RoadType, 
   WeatherType,
-  IndicatorType
+  IndicatorType,
+  GearType
 } from './types';
 import { 
   CITY_THRESHOLD, 
@@ -46,6 +47,8 @@ const INITIAL_STATE: GameState = {
   steeringAngle: 0,
   indicatorStatus: IndicatorType.OFF,
   rearViewActive: false,
+  gear: GearType.PARK,
+  handbrakeActive: true,
   roadCurve: 0,
   currentCurve: 0,
   totalViolations: 0,
@@ -85,6 +88,18 @@ const App: React.FC = () => {
           ...prev,
           rearViewActive: !prev.rearViewActive
         }));
+      } else if (key === 'p') {
+        setGameState(prev => ({
+          ...prev,
+          handbrakeActive: !prev.handbrakeActive
+        }));
+      } else if (key === 'x') {
+        setGameState(prev => {
+          const gears = [GearType.PARK, GearType.REVERSE, GearType.NEUTRAL, GearType.DRIVE];
+          const currentIndex = gears.indexOf(prev.gear);
+          const nextIndex = (currentIndex + 1) % gears.length;
+          return { ...prev, gear: gears[nextIndex] };
+        });
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = false; };
@@ -166,7 +181,8 @@ const App: React.FC = () => {
         s.selectedBus.size,
         s.terrain,
         s.indicatorStatus,
-        s.isStopped
+        s.isStopped,
+        s.weather
       );
 
       setGameState(prev => {
@@ -204,23 +220,33 @@ const App: React.FC = () => {
         const engineMax = prev.selectedBus.maxSpeed;
         const terrainLimit = SPEED_LIMITS[prev.terrain];
         
-        // Logical max speed is limited by conditions but driver can exceed terrain limit (at a cost)
         const logicalMax = isRaining ? engineMax * 0.8 : (isFoggy ? engineMax * 0.9 : engineMax);
 
         let newSpeed = prev.speed;
-        if (isAccelerating) {
-          newSpeed = Math.min(logicalMax, prev.speed + prev.selectedBus.acceleration * traction);
+        
+        // Physical constraints: Handbrake and Gear
+        const canMove = !prev.handbrakeActive && (prev.gear === GearType.DRIVE || prev.gear === GearType.REVERSE);
+        
+        if (isAccelerating && canMove) {
+          const accelDirection = prev.gear === GearType.REVERSE ? -1 : 1;
+          newSpeed = newSpeed + (prev.selectedBus.acceleration * traction * accelDirection);
+          // Clamp speed based on logical max
+          if (accelDirection > 0) newSpeed = Math.min(logicalMax, newSpeed);
+          else newSpeed = Math.max(-logicalMax * 0.3, newSpeed); // Slower reverse
         } else if (keysPressed.current['s'] || keysPressed.current['arrowdown']) {
           const brakeForce = isRaining ? prev.selectedBus.acceleration : prev.selectedBus.acceleration * 2;
-          newSpeed = Math.max(0, prev.speed - brakeForce);
+          if (newSpeed > 0) newSpeed = Math.max(0, newSpeed - brakeForce);
+          else if (newSpeed < 0) newSpeed = Math.min(0, newSpeed + brakeForce);
         } else {
-          newSpeed = Math.max(0, prev.speed - 0.05);
+          // Natural friction
+          if (Math.abs(newSpeed) < 0.1) newSpeed = 0;
+          else newSpeed *= 0.98;
         }
 
-        // Speed Limit Enforcement
-        if (newSpeed > terrainLimit + 5) { // 5km/h grace margin
+        // Speed Limit Enforcement (only for forward motion)
+        if (newSpeed > terrainLimit + 5) { 
           speedingFrames.current += 1;
-          if (speedingFrames.current > 120) { // ~2 seconds of speeding
+          if (speedingFrames.current > 120) {
             speedingFrames.current = 0;
             setTimeout(() => triggerPenalty(`Speeding in ${prev.terrain} Zone`, 50), 0);
           }
@@ -241,40 +267,19 @@ const App: React.FC = () => {
           newAngle *= 0.92;
         }
 
-        const distanceInc = newSpeed * 0.15;
+        const distanceInc = Math.abs(newSpeed) * 0.15;
         const newDistance = prev.currentDistance + distanceInc;
 
-        if (isRaining && !prev.wipersActive && newSpeed > 40 && Math.abs(newDistance - lastViolationDist.current) > 3000) {
+        if (isRaining && !prev.wipersActive && Math.abs(newSpeed) > 40 && Math.abs(newDistance - lastViolationDist.current) > 3000) {
           lastViolationDist.current = newDistance;
           setTimeout(() => triggerPenalty("Driving in Rain without Wipers", 75), 0);
         }
 
-        if (prev.terrain === TerrainType.CITY) {
-          const lightIdx = Math.round(newDistance / TRAFFIC_LIGHT_DISTANCE);
-          const lightDist = lightIdx * TRAFFIC_LIGHT_DISTANCE;
-          const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
-          const isRed = cycleTime < 6000;
-          
-          if (isRed && Math.abs(newDistance - lightDist) < 30 && newSpeed > 5) {
-             if (Math.abs(newDistance - lastViolationDist.current) > 200) {
-               lastViolationDist.current = newDistance;
-               setTimeout(() => triggerPenalty("Red Light Violation", 100), 0);
-             }
-          }
-        }
-
-        if (Math.abs(newDistance - prev.nextStopDistance) < 50 && newSpeed > 30) {
-           if (Math.abs(newDistance - lastViolationDist.current) > 500) {
-              lastViolationDist.current = newDistance;
-              setTimeout(() => triggerPenalty("Dangerous Speed at Zebra Crossing", 50), 0);
-           }
-        }
-
         const isNearStop = Math.abs(newDistance - prev.nextStopDistance) < 50;
-        if (isNearStop && (keysPressed.current[' '] || newSpeed < 2)) {
+        if (isNearStop && (keysPressed.current[' '] || Math.abs(newSpeed) < 2)) {
           const isRest = prev.terrain === TerrainType.VILLAGE;
           setTimeout(() => triggerStop(isRest), 0);
-          return { ...prev, speed: 0, currentDistance: prev.nextStopDistance, steeringAngle: 0 };
+          return { ...prev, speed: 0, currentDistance: prev.nextStopDistance, steeringAngle: 0, gear: GearType.PARK, handbrakeActive: true };
         }
 
         let terrain = prev.terrain;
@@ -326,12 +331,6 @@ const App: React.FC = () => {
     setGameState(prev => ({ ...prev, rainIntensity: val }));
   };
 
-  useEffect(() => {
-    return () => {
-      audioService.stop();
-    };
-  }, []);
-
   return (
     <div className="relative w-screen h-screen bg-slate-950 flex items-center justify-center overflow-hidden">
       {showMenu && <Menu onStart={handleStartGame} />}
@@ -345,7 +344,7 @@ const App: React.FC = () => {
             onToggleLights={() => setGameState(p => ({...p, headlightsOn: !p.headlightsOn}))}
             onToggleWipers={() => setGameState(p => ({...p, wipersActive: !p.wipersActive}))}
             onToggleRearView={() => setGameState(p => ({...p, rearViewActive: !p.rearViewActive}))}
-            onOpenDoors={() => { if(gameState.speed < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
+            onOpenDoors={() => { if(Math.abs(gameState.speed) < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
             onRadioCheck={handleRadioCheck}
             onSetRainIntensity={handleSetRainIntensity}
           />

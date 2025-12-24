@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { GameState, WeatherType, IndicatorType } from '../types';
+import { GameState, WeatherType, IndicatorType, GearType } from '../types';
 import { SPEED_LIMITS } from '../constants';
 
 interface DashboardProps {
@@ -22,7 +22,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   // Speedometer logic
   const maxSpeed = state.selectedBus.maxSpeed;
-  const currentSpeed = state.speed;
+  const currentSpeed = Math.abs(state.speed);
   const speedPercentage = Math.min(1, currentSpeed / maxSpeed);
   const needleRotation = (speedPercentage * 240) - 120;
   
@@ -79,31 +79,33 @@ const Dashboard: React.FC<DashboardProps> = ({
           active={state.isStopped} 
           onClick={onOpenDoors}
           icon="🚪"
-          disabled={state.speed > 5}
+          disabled={currentSpeed > 5}
         />
       </div>
 
       {/* Cluster / Gauges */}
       <div className="flex items-end gap-6 pb-2">
         
+        {/* Gear and Brake Panel */}
+        <div className="flex flex-col gap-2 mb-2">
+           <div className="bg-black/60 px-3 py-1 rounded border border-white/10 flex gap-2 items-center">
+             <span className="text-[8px] font-black text-white/40">GEAR</span>
+             <span className="text-xl font-mono font-black text-blue-400">{state.gear}</span>
+           </div>
+           <div className={`px-3 py-1 rounded border flex gap-2 items-center ${state.handbrakeActive ? 'bg-red-900/40 border-red-500' : 'bg-black/40 border-white/10'}`}>
+             <span className={`text-[8px] font-black ${state.handbrakeActive ? 'text-red-400' : 'text-white/20'}`}>PARK</span>
+             <div className={`w-2 h-2 rounded-full ${state.handbrakeActive ? 'bg-red-500 animate-pulse' : 'bg-white/10'}`}></div>
+           </div>
+        </div>
+
         {/* Speedometer Gauge */}
         <div className="relative w-32 h-32 flex items-center justify-center">
           <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="6" />
             <circle 
-              cx="50" cy="50" r="45" 
-              fill="none" 
-              stroke="rgba(255,255,255,0.05)" 
-              strokeWidth="6" 
-            />
-            <circle 
-              cx="50" cy="50" r="45" 
-              fill="none" 
-              stroke="url(#speedGradient)" 
-              strokeWidth="4" 
-              strokeDasharray="283" 
-              strokeDashoffset={283 - (speedPercentage * 283 * (240/360))}
-              strokeLinecap="round"
-              className="transition-all duration-300 ease-out"
+              cx="50" cy="50" r="45" fill="none" stroke="url(#speedGradient)" strokeWidth="4" 
+              strokeDasharray="283" strokeDashoffset={283 - (speedPercentage * 283 * (240/360))}
+              strokeLinecap="round" className="transition-all duration-300 ease-out"
               style={{ transform: 'rotate(150deg)', transformOrigin: 'center' }}
             />
             <defs>
@@ -119,11 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                {[0, 20, 40, 60, 80, 100, 120].map((val) => {
                  const angle = (val / 120) * 240 - 120;
                  return (
-                   <div 
-                     key={val} 
-                     className="absolute left-1/2 top-1/2 w-full h-[2px] origin-left -translate-y-1/2"
-                     style={{ transform: `rotate(${angle}deg)` }}
-                   >
+                   <div key={val} className="absolute left-1/2 top-1/2 w-full h-[2px] origin-left -translate-y-1/2" style={{ transform: `rotate(${angle}deg)` }}>
                       <div className="absolute right-1 top-1/2 -translate-y-1/2 w-2 h-full bg-white/20"></div>
                    </div>
                  );
@@ -138,7 +136,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-slate-900 border-2 border-red-500"></div>
           </div>
 
-          {/* Center Info - SPEEDING INDICATOR */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
             <span className={`text-xl font-mono font-black tabular-nums transition-colors duration-300 ${isSpeeding ? 'text-red-500 animate-pulse' : 'text-white'}`}>
               {Math.round(currentSpeed)}
@@ -147,26 +144,20 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        {/* Status Indicators & Digital Readout */}
+        {/* Status Indicators */}
         <div className="flex flex-col items-center gap-3">
           <div className="flex gap-4">
             <IndicatorLight active={state.indicatorStatus === IndicatorType.LEFT} side="L" />
             <IndicatorLight active={state.indicatorStatus === IndicatorType.RIGHT} side="R" />
           </div>
-          
           <div className="flex gap-3">
             <StatusIndicator active={state.headlightsOn} color="blue" label="BEAM" />
             <StatusIndicator active={state.isFull} color="red" label="FULL" />
             <StatusIndicator active={state.isStopped} color="yellow" label="DOORS" />
           </div>
-
           <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 min-w-[120px] text-center shadow-inner">
-            <div className="text-[8px] text-white/40 font-black uppercase tracking-widest mb-0.5">
-              Passengers
-            </div>
-            <div className="text-xl font-mono text-blue-400 tabular-nums">
-              {state.passengers} / {state.selectedBus.capacity}
-            </div>
+            <div className="text-[8px] text-white/40 font-black uppercase tracking-widest mb-0.5">Passengers</div>
+            <div className="text-xl font-mono text-blue-400 tabular-nums">{state.passengers} / {state.selectedBus.capacity}</div>
           </div>
         </div>
       </div>
