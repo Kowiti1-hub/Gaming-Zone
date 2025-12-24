@@ -220,6 +220,23 @@ class EngineAudioService {
     this.initialized = true;
   }
 
+  public playIgnition() {
+    if (!this.ctx || !this.initialized) return;
+    const now = this.ctx.currentTime;
+    const starterOsc = this.ctx.createOscillator();
+    const starterGain = this.ctx.createGain();
+    starterOsc.type = 'sawtooth';
+    starterOsc.frequency.setValueAtTime(80, now);
+    starterOsc.frequency.exponentialRampToValueAtTime(140, now + 0.8);
+    starterGain.gain.setValueAtTime(0, now);
+    starterGain.gain.linearRampToValueAtTime(0.1, now + 0.1);
+    starterGain.gain.linearRampToValueAtTime(0, now + 0.8);
+    starterOsc.connect(starterGain);
+    starterGain.connect(this.masterGain!);
+    starterOsc.start(now);
+    starterOsc.stop(now + 0.8);
+  }
+
   private triggerHorn() {
     if (!this.ctx || !this.hornGain || !this.hornPanner) return;
     const now = this.ctx.currentTime;
@@ -320,7 +337,7 @@ class EngineAudioService {
     }
   }
 
-  public update(speed: number, isAccelerating: boolean, size: BusSize, terrain: TerrainType, indicators: IndicatorType, isStopped: boolean, weather?: WeatherType) {
+  public update(speed: number, isAccelerating: boolean, size: BusSize, terrain: TerrainType, indicators: IndicatorType, isStopped: boolean, weather: WeatherType | undefined, isEngineOn: boolean) {
     if (!this.ctx || !this.initialized) return;
 
     const time = this.ctx.currentTime + 0.1;
@@ -348,15 +365,15 @@ class EngineAudioService {
         break;
     }
 
-    const isIdle = Math.abs(speed) < 5 && !isAccelerating;
+    const isIdle = isEngineOn && Math.abs(speed) < 5 && !isAccelerating;
     const pulse = isIdle ? Math.pow(Math.sin(this.ctx.currentTime * 7.5 * Math.PI), 2) : 0;
     const engineFreq = baseFreq + (Math.abs(speed) * freqMult);
     
-    this.mainOsc!.frequency.exponentialRampToValueAtTime(engineFreq, time);
-    this.mainGain!.gain.linearRampToValueAtTime(0.3 + pulse * 0.12 + (Math.abs(speed) / 200), time);
-    this.loadGain!.gain.linearRampToValueAtTime(isAccelerating ? loadBase : 0.05, time);
+    this.mainOsc!.frequency.exponentialRampToValueAtTime(isEngineOn ? engineFreq : 1, time);
+    this.mainGain!.gain.linearRampToValueAtTime(isEngineOn ? (0.3 + pulse * 0.12 + (Math.abs(speed) / 200)) : 0, time);
+    this.loadGain!.gain.linearRampToValueAtTime(isEngineOn && isAccelerating ? loadBase : 0, time);
 
-    this.idleRumbleOsc!.frequency.setTargetAtTime(idleFreq, time, 0.1);
+    this.idleRumbleOsc!.frequency.setTargetAtTime(isEngineOn ? idleFreq : 1, time, 0.1);
     this.idleRumbleGain!.gain.linearRampToValueAtTime(isIdle ? idleRumbleVolume : 0, time);
 
     // --- City Ambience ---

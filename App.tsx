@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Menu from './components/Menu';
 import GameCanvas from './components/GameCanvas';
 import HUD from './components/HUD';
+import Dashboard from './components/Dashboard';
 import { 
   GameState, Driver, Bus, TerrainType, RoadType, WeatherType, IndicatorType, GearType, TransmissionType, CameraView 
 } from './types';
@@ -32,7 +33,7 @@ const INITIAL_STATE: GameState = {
   rearViewActive: false,
   gear: GearType.PARK,
   transmission: TransmissionType.AUTOMATIC,
-  cameraView: CameraView.CHASE,
+  cameraView: CameraView.COCKPIT,
   handbrakeActive: true,
   roadCurve: 0,
   currentCurve: 0,
@@ -41,7 +42,11 @@ const INITIAL_STATE: GameState = {
   bodyRoll: 0,
   bodyPitch: 0,
   suspensionY: 0,
-  rpm: 800
+  rpm: 0,
+  radioStation: 'POP HITS',
+  isRadioOn: false,
+  isEngineOn: false,
+  fuel: 100
 };
 
 const App: React.FC = () => {
@@ -56,7 +61,37 @@ const App: React.FC = () => {
       const key = e.key.toLowerCase();
       keysPressed.current[key] = true;
 
-      // View Cycle
+      // Manual Gear Shifting (1-5)
+      if (['1', '2', '3', '4', '5'].includes(key)) {
+        const gearMap: Record<string, GearType> = {
+          '1': GearType.G1, '2': GearType.G2, '3': GearType.G3, '4': GearType.G4, '5': GearType.G5
+        };
+        setGameState(prev => ({
+          ...prev,
+          transmission: TransmissionType.MANUAL,
+          gear: gearMap[key]
+        }));
+      }
+
+      // Drive / Auto
+      if (key === 'd') {
+        setGameState(prev => ({
+          ...prev,
+          transmission: TransmissionType.AUTOMATIC,
+          gear: GearType.DRIVE
+        }));
+      }
+
+      // Neutral
+      if (key === 'n') {
+        setGameState(prev => ({ ...prev, gear: GearType.NEUTRAL }));
+      }
+
+      // Reverse (using Z as R is radio)
+      if (key === 'z') {
+        setGameState(prev => ({ ...prev, gear: GearType.REVERSE }));
+      }
+
       if (key === 'v') {
         setGameState(prev => {
           const views = Object.values(CameraView);
@@ -65,27 +100,23 @@ const App: React.FC = () => {
         });
       }
 
-      // Manual Gear Selection
-      if (stateRef.current.transmission === TransmissionType.MANUAL) {
-        if (key === '1') setGameState(p => ({ ...p, gear: GearType.G1 }));
-        if (key === '2') setGameState(p => ({ ...p, gear: GearType.G2 }));
-        if (key === '3') setGameState(p => ({ ...p, gear: GearType.G3 }));
-        if (key === '4') setGameState(p => ({ ...p, gear: GearType.G4 }));
-        if (key === '5') setGameState(p => ({ ...p, gear: GearType.G5 }));
-        if (key === '0') setGameState(p => ({ ...p, gear: GearType.NEUTRAL }));
-        if (key === 'r') setGameState(p => ({ ...p, gear: GearType.REVERSE }));
-      }
-
-      // Transmission Toggle
       if (key === 'm') {
         setGameState(prev => ({
           ...prev,
           transmission: prev.transmission === TransmissionType.AUTOMATIC ? TransmissionType.MANUAL : TransmissionType.AUTOMATIC,
-          gear: GearType.PARK
+          gear: prev.transmission === TransmissionType.AUTOMATIC ? GearType.G1 : GearType.DRIVE
         }));
       }
+
+      if (key === 'l') toggleLights();
+      if (key === 'p') toggleHandbrake();
+      if (key === 'b') toggleDoors();
+      if (key === 'r') toggleRadio();
+      if (key === 'e') toggleEngine();
     };
+
     const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.key.toLowerCase()] = false; };
+    
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
@@ -94,71 +125,180 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const toggleLights = () => setGameState(p => ({ ...p, headlightsOn: !p.headlightsOn }));
+  const toggleWipers = () => setGameState(p => ({ ...p, wipersActive: !p.wipersActive }));
+  const toggleHandbrake = () => setGameState(p => ({ ...p, handbrakeActive: !p.handbrakeActive }));
+  const toggleRadio = () => setGameState(p => ({ ...p, isRadioOn: !p.isRadioOn }));
+  const changeStation = (station: string) => setGameState(p => ({ ...p, radioStation: station }));
+  
+  const toggleEngine = () => {
+    if (stateRef.current.fuel <= 0) return;
+    setGameState(prev => {
+      const newState = !prev.isEngineOn;
+      if (newState) audioService.playIgnition();
+      return { ...prev, isEngineOn: newState, rpm: newState ? 800 : 0, speed: newState ? prev.speed : prev.speed * 0.5 };
+    });
+  };
+
+  const toggleDoors = () => {
+    if (Math.abs(stateRef.current.speed) < 1) {
+      setGameState(p => ({ ...p, isStopped: !p.isStopped }));
+    }
+  };
+
   useEffect(() => {
     if (gameState.gameStatus !== 'DRIVING') return;
 
+    audioService.init();
+
     const interval = setInterval(() => {
-      const s = stateRef.current;
       const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
       const isBraking = keysPressed.current['s'] || keysPressed.current['arrowdown'];
+      const isLeft = keysPressed.current['a'] || keysPressed.current['arrowleft'];
+      const isRight = keysPressed.current['d'] || keysPressed.current['arrowright'];
 
       setGameState(prev => {
-        if (prev.isStopped) return prev;
+        let newFuel = prev.fuel;
+        if (prev.isEngineOn) {
+          const consumptionBase = 0.001;
+          const consumptionSpeed = (Math.abs(prev.speed) / prev.selectedBus.maxSpeed) * 0.005;
+          newFuel = Math.max(0, newFuel - (consumptionBase + consumptionSpeed));
+        }
 
-        // Gear Check for Movement
-        const isForward = prev.gear === GearType.DRIVE || [GearType.G1, GearType.G2, GearType.G3, GearType.G4, GearType.G5].includes(prev.gear);
-        const isReverse = prev.gear === GearType.REVERSE;
-        const canMove = !prev.handbrakeActive && (isForward || isReverse);
+        const engineDied = prev.isEngineOn && newFuel <= 0;
+        const isEngineActive = prev.isEngineOn && !engineDied;
 
-        let accel = 0;
+        if (prev.isStopped) return { ...prev, speed: 0, rpm: isEngineActive ? 800 : 0, fuel: newFuel, isEngineOn: isEngineActive };
+
         let newSpeed = prev.speed;
         let newRpm = prev.rpm;
+        const maxSpeed = prev.selectedBus.maxSpeed;
+
+        const isForward = prev.gear === GearType.DRIVE || [GearType.G1, GearType.G2, GearType.G3, GearType.G4, GearType.G5].includes(prev.gear);
+        const isReverse = prev.gear === GearType.REVERSE;
+        const isNeutral = prev.gear === GearType.NEUTRAL || prev.gear === GearType.PARK;
+        const canMove = isEngineActive && !prev.handbrakeActive && (isForward || isReverse);
 
         if (isAccelerating && canMove) {
-          const direction = isReverse ? -1 : 1;
-          accel = prev.selectedBus.acceleration * direction;
+          const accel = prev.selectedBus.acceleration * (isReverse ? -1 : 1);
+          newSpeed += accel;
           
-          // Gear Ratios for Manual
           if (prev.transmission === TransmissionType.MANUAL) {
             const gearLimits: any = { [GearType.G1]: 20, [GearType.G2]: 45, [GearType.G3]: 70, [GearType.G4]: 95, [GearType.G5]: 130 };
             const limit = gearLimits[prev.gear] || 0;
-            if (Math.abs(newSpeed) > limit) accel = 0;
-            newRpm = 800 + (Math.abs(newSpeed) % 25) * 150;
+            if (Math.abs(newSpeed) > limit) newSpeed = limit * (isReverse ? -1 : 1);
+            newRpm = 800 + (Math.abs(newSpeed) / limit) * 4000;
+          } else {
+            if (Math.abs(newSpeed) > 0 && prev.gear === GearType.DRIVE) {
+               newRpm = 800 + (Math.abs(newSpeed) / maxSpeed) * 3000;
+            }
           }
-
-          newSpeed += accel;
+        } else if (isBraking) {
+          newSpeed *= 0.92;
+          newRpm = isEngineActive ? Math.max(800, newRpm * 0.95) : 0;
         } else {
           newSpeed *= 0.98;
-          newRpm = Math.max(800, newRpm * 0.95);
+          newRpm = isEngineActive ? Math.max(800, newRpm * 0.95) : 0;
         }
 
-        const distInc = Math.abs(newSpeed) * 0.15;
+        if (isNeutral) {
+          newSpeed *= 0.99; // Rolling friction
+          newRpm = isAccelerating && isEngineActive ? 4000 : (isEngineActive ? 800 : 0);
+        }
+
+        if (Math.abs(newSpeed) > maxSpeed) newSpeed = maxSpeed * (newSpeed > 0 ? 1 : -1);
+        if (Math.abs(newSpeed) < 0.1) newSpeed = 0;
+
+        const distInc = Math.abs(newSpeed) * 0.05;
         const newDistance = prev.currentDistance + distInc;
 
-        // Camera Auto-switching for Reverse
-        let autoView = prev.cameraView;
-        if (isReverse && prev.cameraView === CameraView.CHASE) autoView = CameraView.FRONT;
-        if (!isReverse && prev.cameraView === CameraView.FRONT) autoView = CameraView.CHASE;
+        let newSteer = prev.steeringAngle;
+        if (isLeft) newSteer = Math.max(-45, newSteer - 1.5);
+        else if (isRight) newSteer = Math.min(45, newSteer + 1.5);
+        else newSteer *= 0.85;
+
+        audioService.update(
+          newSpeed, 
+          isAccelerating && isEngineActive, 
+          prev.selectedBus.size, 
+          prev.terrain, 
+          prev.indicatorStatus, 
+          prev.isStopped,
+          prev.weather,
+          isEngineActive
+        );
 
         return {
           ...prev,
           speed: newSpeed,
           currentDistance: newDistance,
           rpm: newRpm,
-          cameraView: autoView,
-          steeringAngle: keysPressed.current['a'] ? Math.max(-45, prev.steeringAngle - 2) : (keysPressed.current['d'] ? Math.min(45, prev.steeringAngle + 2) : prev.steeringAngle * 0.9)
+          steeringAngle: newSteer,
+          fuel: newFuel,
+          isEngineOn: isEngineActive
         };
       });
     }, 16);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      audioService.stop();
+    };
   }, [gameState.gameStatus]);
 
+  const handleStart = (driver: Driver, bus: Bus) => {
+    setShowMenu(false);
+    setGameState(p => ({ 
+      ...p, 
+      selectedDriver: driver, 
+      selectedBus: bus, 
+      gameStatus: 'DRIVING' 
+    }));
+  };
+
   return (
-    <div className="w-full h-full bg-slate-950 flex items-center justify-center overflow-hidden">
-      {showMenu && <Menu onStart={(d, b) => { setShowMenu(false); setGameState(p => ({ ...p, selectedDriver: d, selectedBus: b, gameStatus: 'DRIVING' })); }} />}
-      <GameCanvas state={gameState} onGearChange={() => {}} onHandbrakeToggle={() => {}} />
-      {!showMenu && <HUD state={gameState} narration="" onToggleLights={() => {}} onToggleWipers={() => {}} onToggleRearView={() => {}} onOpenDoors={() => {}} onRadioCheck={() => {}} onSetRainIntensity={() => {}} onAIEdit={() => {}} isAiProcessing={false} aiResult={null} onCloseAIResult={() => {}} />}
+    <div className="w-full h-full bg-slate-950 flex items-center justify-center overflow-hidden relative">
+      {showMenu && <Menu onStart={handleStart} />}
+      
+      <div className="relative w-full h-full flex items-center justify-center">
+        <GameCanvas 
+          state={gameState} 
+          onGearChange={(g) => setGameState(p => ({ ...p, gear: g }))} 
+          onHandbrakeToggle={toggleHandbrake}
+          onToggleEngine={toggleEngine}
+        />
+        
+        {!showMenu && (
+          <>
+            <HUD 
+              state={gameState} 
+              narration=""
+              onToggleLights={toggleLights}
+              onToggleWipers={toggleWipers}
+              onToggleRearView={() => setGameState(p => ({ ...p, rearViewActive: !p.rearViewActive }))}
+              onOpenDoors={toggleDoors}
+              onRadioCheck={() => {}}
+              onSetRainIntensity={() => {}}
+              onAIEdit={() => {}}
+              isAiProcessing={false}
+              aiResult={null}
+              onCloseAIResult={() => {}}
+            />
+            
+            <Dashboard 
+              state={gameState}
+              onToggleLights={toggleLights}
+              onToggleWipers={toggleWipers}
+              onOpenDoors={toggleDoors}
+              onRadioCheck={() => {}}
+              onRadioToggle={toggleRadio}
+              onStationChange={changeStation}
+              onToggleEngine={toggleEngine}
+              onGearShift={(g) => setGameState(p => ({ ...p, gear: g, transmission: TransmissionType.MANUAL }))}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 };

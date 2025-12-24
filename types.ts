@@ -77,7 +77,8 @@ export enum CameraView {
   RIGHT = 'RIGHT',
   FRONT = 'FRONT',
   REAR_CLOSE = 'REAR_CLOSE',
-  REAR_DIST = 'REAR_DIST'
+  REAR_DIST = 'REAR_DIST',
+  COCKPIT = 'COCKPIT'
 }
 
 export interface GameState {
@@ -113,6 +114,10 @@ export interface GameState {
   bodyPitch: number;
   suspensionY: number;
   rpm: number;
+  radioStation: string;
+  isRadioOn: boolean;
+  isEngineOn: boolean;
+  fuel: number;
 }
 
 export interface StopInfo {
