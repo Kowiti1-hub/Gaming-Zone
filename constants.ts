@@ -1,5 +1,5 @@
 
-import { Driver, DriverName, Bus, BusSize } from './types';
+import { Driver, DriverName, Bus, BusSize, TerrainType } from './types';
 
 export const DRIVERS: Driver[] = [
   {
@@ -67,6 +67,12 @@ export const CANVAS_HEIGHT = 600;
 export const CITY_THRESHOLD = 5000;
 export const SUBURBAN_THRESHOLD = 15000;
 export const VILLAGE_THRESHOLD = 30000;
+
+export const SPEED_LIMITS: Record<TerrainType, number> = {
+  [TerrainType.CITY]: 60,
+  [TerrainType.SUBURBAN]: 90,
+  [TerrainType.VILLAGE]: 40
+};
 
 export const STOP_INTERVAL_CITY_MIN = 6; // seconds
 export const STOP_INTERVAL_CITY_MAX = 30; // seconds

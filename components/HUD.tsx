@@ -2,7 +2,7 @@
 import React from 'react';
 import { GameState, WeatherType } from '../types';
 import Dashboard from './Dashboard';
-import { VILLAGE_THRESHOLD } from '../constants';
+import { VILLAGE_THRESHOLD, SPEED_LIMITS } from '../constants';
 
 interface HUDProps {
   state: GameState;
@@ -12,6 +12,7 @@ interface HUDProps {
   onToggleRearView: () => void;
   onOpenDoors: () => void;
   onRadioCheck: () => void;
+  onSetRainIntensity: (val: number) => void;
 }
 
 const HUD: React.FC<HUDProps> = ({ 
@@ -21,7 +22,8 @@ const HUD: React.FC<HUDProps> = ({
   onToggleWipers, 
   onToggleRearView,
   onOpenDoors, 
-  onRadioCheck 
+  onRadioCheck,
+  onSetRainIntensity
 }) => {
   const weatherIcons: Record<WeatherType, string> = {
     [WeatherType.CLEAR]: "☀️",
@@ -30,13 +32,15 @@ const HUD: React.FC<HUDProps> = ({
   };
 
   const reflectionOffset = (state.currentDistance % 1000) / 10;
+  const currentLimit = SPEED_LIMITS[state.terrain];
+  const isSpeeding = state.speed > currentLimit;
 
   return (
     <div className="fixed inset-0 pointer-events-none p-6 flex flex-col justify-between z-10">
       {/* Top Bar - Minimalist Glass */}
       <div className="flex justify-between items-start">
         <div className="flex flex-col gap-3">
-          <div className="bg-black/40 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/5 text-white shadow-2xl">
+          <div className="bg-black/40 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/5 text-white shadow-2xl pointer-events-auto">
             <div className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-1">Balance</div>
             <div className="text-3xl font-mono text-emerald-400 tabular-nums">
               ${state.money.toLocaleString()}
@@ -50,17 +54,24 @@ const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
-        {/* Rear Mirror - Polished with reflection effect */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-64 h-14 bg-slate-900/60 backdrop-blur-xl border-2 border-slate-700/50 rounded-b-3xl overflow-hidden flex items-center justify-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
-            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">Rear View Mirror</div>
-            <div 
-              className="absolute inset-0 opacity-20"
-              style={{
-                background: `repeating-linear-gradient(0deg, #444, #444 10px, transparent 10px, transparent 20px)`,
-                transform: `translateY(${reflectionOffset}px) scaleX(2)`
-              }}
-            ></div>
-            <div className="absolute inset-0 bg-gradient-to-tr from-white/5 via-transparent to-white/5"></div>
+        {/* Speed Limit Sign - Dynamic */}
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-8">
+            <div className="w-16 h-16 rounded-full bg-white border-[6px] border-red-600 flex items-center justify-center shadow-2xl">
+              <span className="text-2xl font-black text-black tabular-nums">{currentLimit}</span>
+            </div>
+            
+            {/* Mirror - Center */}
+            <div className="w-64 h-14 bg-slate-900/60 backdrop-blur-xl border-2 border-slate-700/50 rounded-b-3xl overflow-hidden flex items-center justify-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+                <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">Rear View</div>
+                <div 
+                  className="absolute inset-0 opacity-20"
+                  style={{
+                    background: `repeating-linear-gradient(0deg, #444, #444 10px, transparent 10px, transparent 20px)`,
+                    transform: `translateY(${reflectionOffset}px) scaleX(2)`
+                  }}
+                ></div>
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/5 via-transparent to-white/5"></div>
+            </div>
         </div>
 
         <div className="flex flex-col gap-3 items-end">
@@ -70,9 +81,25 @@ const HUD: React.FC<HUDProps> = ({
             <div className="text-[10px] font-bold text-emerald-500/80 uppercase">{state.road} Zone</div>
           </div>
           
-          <div className="bg-black/40 backdrop-blur-md px-5 py-2 rounded-2xl border border-white/5 text-white flex items-center gap-3 shadow-2xl">
-            <span className="text-xl">{weatherIcons[state.weather]}</span>
-            <span className="text-[10px] font-black uppercase tracking-widest text-white/60">{state.weather}</span>
+          <div className="bg-black/40 backdrop-blur-md px-5 py-2 rounded-2xl border border-white/5 text-white flex flex-col items-center gap-1 shadow-2xl pointer-events-auto">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">{weatherIcons[state.weather]}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/60">{state.weather}</span>
+            </div>
+            {state.weather === WeatherType.RAIN && (
+              <div className="mt-2 w-32 flex flex-col items-center">
+                <div className="text-[8px] text-white/30 uppercase font-bold tracking-widest mb-1">Intensity</div>
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="1.0" 
+                  step="0.05" 
+                  value={state.rainIntensity} 
+                  onChange={(e) => onSetRainIntensity(parseFloat(e.target.value))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

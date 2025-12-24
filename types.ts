@@ -66,6 +66,7 @@ export interface GameState {
   terrain: TerrainType;
   road: RoadType;
   weather: WeatherType;
+  rainIntensity: number; // 0 to 1
   lastStopDistance: number;
   nextStopDistance: number;
   // Dashboard states

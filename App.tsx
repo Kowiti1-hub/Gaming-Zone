@@ -19,7 +19,8 @@ import {
   DRIVERS,
   BUSES,
   TRAFFIC_LIGHT_DISTANCE,
-  TRAFFIC_LIGHT_CYCLE
+  TRAFFIC_LIGHT_CYCLE,
+  SPEED_LIMITS
 } from './constants';
 import { getNarration } from './services/geminiService';
 import { audioService } from './services/audioService';
@@ -37,6 +38,7 @@ const INITIAL_STATE: GameState = {
   terrain: TerrainType.CITY,
   road: RoadType.PAVED,
   weather: WeatherType.CLEAR,
+  rainIntensity: 0.5,
   lastStopDistance: 0,
   nextStopDistance: 1500,
   headlightsOn: false,
@@ -61,6 +63,7 @@ const App: React.FC = () => {
   const keysPressed = useRef<{ [key: string]: boolean }>({});
   const lastViolationDist = useRef<number>(0);
   const lastWeatherChangeDist = useRef<number>(0);
+  const speedingFrames = useRef<number>(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { 
@@ -155,26 +158,35 @@ const App: React.FC = () => {
 
     const interval = setInterval(() => {
       const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
+      const s = stateRef.current;
       
-      // Update Audio Engine with current terrain
       audioService.update(
-        stateRef.current.speed, 
+        s.speed, 
         isAccelerating, 
-        stateRef.current.selectedBus.size,
-        stateRef.current.terrain
+        s.selectedBus.size,
+        s.terrain,
+        s.indicatorStatus,
+        s.isStopped
       );
 
       setGameState(prev => {
         if (prev.isStopped) return prev;
 
-        // Dynamic Weather Transition Logic
         let newWeather = prev.weather;
+        let newRainIntensity = prev.rainIntensity;
+
         if (prev.currentDistance - lastWeatherChangeDist.current > 4000) {
           lastWeatherChangeDist.current = prev.currentDistance;
           const rand = Math.random();
-          if (rand < 0.1) newWeather = WeatherType.RAIN;
+          if (rand < 0.1) {
+            newWeather = WeatherType.RAIN;
+            newRainIntensity = 0.3 + Math.random() * 0.7; 
+          }
           else if (rand < 0.2) newWeather = WeatherType.FOG;
-          else newWeather = WeatherType.CLEAR;
+          else {
+            newWeather = WeatherType.CLEAR;
+            newRainIntensity = 0.5;
+          }
           
           if (newWeather !== prev.weather) {
             setNarration(`Dispatch: Weather advisory - ${newWeather} conditions ahead. Exercise caution.`);
@@ -182,29 +194,45 @@ const App: React.FC = () => {
           }
         }
 
+        if (prev.weather === WeatherType.RAIN) {
+          newRainIntensity = Math.max(0.1, Math.min(1.0, prev.rainIntensity + (Math.random() - 0.5) * 0.01));
+        }
+
         const isRaining = prev.weather === WeatherType.RAIN;
         const isFoggy = prev.weather === WeatherType.FOG;
-
-        // Impact of weather on physics
         const traction = isRaining ? 0.6 : (isFoggy ? 0.85 : 1.0);
-        const speedLimit = isRaining ? prev.selectedBus.maxSpeed * 0.7 : (isFoggy ? prev.selectedBus.maxSpeed * 0.8 : prev.selectedBus.maxSpeed);
+        const engineMax = prev.selectedBus.maxSpeed;
+        const terrainLimit = SPEED_LIMITS[prev.terrain];
+        
+        // Logical max speed is limited by conditions but driver can exceed terrain limit (at a cost)
+        const logicalMax = isRaining ? engineMax * 0.8 : (isFoggy ? engineMax * 0.9 : engineMax);
 
         let newSpeed = prev.speed;
         if (isAccelerating) {
-          newSpeed = Math.min(speedLimit, prev.speed + prev.selectedBus.acceleration * traction);
+          newSpeed = Math.min(logicalMax, prev.speed + prev.selectedBus.acceleration * traction);
         } else if (keysPressed.current['s'] || keysPressed.current['arrowdown']) {
-          // Braking is also affected by rain
           const brakeForce = isRaining ? prev.selectedBus.acceleration : prev.selectedBus.acceleration * 2;
           newSpeed = Math.max(0, prev.speed - brakeForce);
         } else {
           newSpeed = Math.max(0, prev.speed - 0.05);
         }
 
+        // Speed Limit Enforcement
+        if (newSpeed > terrainLimit + 5) { // 5km/h grace margin
+          speedingFrames.current += 1;
+          if (speedingFrames.current > 120) { // ~2 seconds of speeding
+            speedingFrames.current = 0;
+            setTimeout(() => triggerPenalty(`Speeding in ${prev.terrain} Zone`, 50), 0);
+          }
+        } else {
+          speedingFrames.current = 0;
+        }
+
         const targetCurve = Math.sin(prev.currentDistance / 1000) * 1.5;
         const curveInterpolation = (targetCurve - prev.roadCurve) * 0.02;
 
         let newAngle = prev.steeringAngle;
-        const steeringSpeed = isRaining ? 1.2 : 2; // Harder to steer in rain
+        const steeringSpeed = isRaining ? 1.2 : 2;
         if (keysPressed.current['a'] || keysPressed.current['arrowleft']) {
           newAngle = Math.max(-45, prev.steeringAngle - steeringSpeed);
         } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
@@ -216,7 +244,6 @@ const App: React.FC = () => {
         const distanceInc = newSpeed * 0.15;
         const newDistance = prev.currentDistance + distanceInc;
 
-        // Violation: Driving fast in rain without wipers
         if (isRaining && !prev.wipersActive && newSpeed > 40 && Math.abs(newDistance - lastViolationDist.current) > 3000) {
           lastViolationDist.current = newDistance;
           setTimeout(() => triggerPenalty("Driving in Rain without Wipers", 75), 0);
@@ -270,6 +297,7 @@ const App: React.FC = () => {
           terrain,
           road,
           weather: newWeather,
+          rainIntensity: newRainIntensity,
           steeringAngle: newAngle,
           roadCurve: prev.roadCurve + curveInterpolation,
           currentCurve: targetCurve,
@@ -294,6 +322,10 @@ const App: React.FC = () => {
     setTimeout(() => setNarration(""), 5000);
   };
 
+  const handleSetRainIntensity = (val: number) => {
+    setGameState(prev => ({ ...prev, rainIntensity: val }));
+  };
+
   useEffect(() => {
     return () => {
       audioService.stop();
@@ -315,6 +347,7 @@ const App: React.FC = () => {
             onToggleRearView={() => setGameState(p => ({...p, rearViewActive: !p.rearViewActive}))}
             onOpenDoors={() => { if(gameState.speed < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
             onRadioCheck={handleRadioCheck}
+            onSetRainIntensity={handleSetRainIntensity}
           />
         )}
       </div>

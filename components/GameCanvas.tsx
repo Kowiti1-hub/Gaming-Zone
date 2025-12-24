@@ -3,6 +3,251 @@ import React, { useRef, useEffect } from 'react';
 import { GameState, TerrainType, RoadType, WeatherType, IndicatorType } from '../types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TRAFFIC_LIGHT_DISTANCE, TRAFFIC_LIGHT_CYCLE } from '../constants';
 
+// Helper functions moved outside component for performance and cleaner scope
+const seed = (s: number) => Math.abs(Math.sin(s) * 10000);
+
+const drawTrafficLight = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, lightIdx: number) => {
+  const scale = z * 2.5;
+  const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
+  
+  let activeBulb = 2; // 0: Red, 1: Yellow, 2: Green
+  if (cycleTime < 6000) activeBulb = 0;
+  else if (cycleTime < 8000) activeBulb = 1;
+
+  ctx.save();
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(x - 2 * scale, y - 90 * scale, 4 * scale, 90 * scale);
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(x - 8 * scale, y - 95 * scale, 16 * scale, 40 * scale);
+  
+  const drawBulb = (bulbIdx: number, color: string, isActive: boolean) => {
+    const bulbY = y - 95 * scale + (bulbIdx * 11 * scale) + 9 * scale;
+    ctx.fillStyle = isActive ? color : '#000';
+    if (isActive) {
+      ctx.shadowBlur = 20 * scale;
+      ctx.shadowColor = color;
+    }
+    ctx.beginPath();
+    ctx.arc(x, bulbY, 4 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  };
+
+  drawBulb(0, '#ef4444', activeBulb === 0);
+  drawBulb(1, '#f59e0b', activeBulb === 1);
+  drawBulb(2, '#10b981', activeBulb === 2);
+  ctx.restore();
+};
+
+const drawPassengers = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, isFull: boolean) => {
+  const scale = z * 2.5;
+  for (let i = 0; i < 3; i++) {
+    const px = x + (i * 12 * scale);
+    const py = y - (2 * scale);
+    ctx.fillStyle = isFull ? '#4a5568' : '#ed8936';
+    ctx.beginPath(); ctx.arc(px, py - 18 * scale, 5 * scale, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(px - 4 * scale, py - 15 * scale, 8 * scale, 15 * scale);
+  }
+};
+
+const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, terrain: TerrainType, s: number, weather: WeatherType) => {
+  const scale = z * 2.5;
+  ctx.save();
+  if (weather === WeatherType.FOG) ctx.globalAlpha = Math.max(0, z * 2 - 0.5);
+
+  if (terrain === TerrainType.CITY) {
+    const type = Math.floor(s) % 12;
+    
+    // 1. Buildings (Types 0-2)
+    if (type < 3) {
+      const colors = ['#2d3748', '#1a202c', '#4a5568'];
+      const h = (140 + (s % 400)) * scale;
+      const w = (70 + (s % 100)) * scale;
+      ctx.fillStyle = colors[type];
+      ctx.fillRect(x - w/2, y - h, w, h);
+      
+      // Windows with varying light
+      ctx.fillStyle = '#f6e05e';
+      const oldAlpha = ctx.globalAlpha;
+      for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 3; col++) {
+          // Semi-random window light
+          if ((s + row * 10 + col) % 5 > 2) {
+             ctx.globalAlpha = oldAlpha * 0.4;
+             ctx.fillRect(x - w/3 + (col * w/4), y - h + (row * h/8) + 12*scale, w/8, h/12);
+          }
+        }
+      }
+      ctx.globalAlpha = oldAlpha;
+    } 
+    // 2. Street Lamp (Type 3)
+    else if (type === 3) {
+      const h = 100 * scale;
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x - 3 * scale, y - h, 6 * scale, h);
+      // Arm
+      ctx.fillRect(x - 3 * scale, y - h, 25 * scale, 4 * scale);
+      
+      const bulbX = x + 22 * scale;
+      const bulbY = y - h + 2 * scale;
+      
+      const lampGlow = ctx.createRadialGradient(bulbX, bulbY, 0, bulbX, bulbY, 30 * scale);
+      lampGlow.addColorStop(0, 'rgba(254, 252, 191, 0.4)');
+      lampGlow.addColorStop(1, 'rgba(254, 252, 191, 0)');
+      ctx.fillStyle = lampGlow;
+      ctx.beginPath(); ctx.arc(bulbX, bulbY, 30 * scale, 0, Math.PI * 2); ctx.fill();
+      
+      ctx.fillStyle = '#fff9c4';
+      ctx.beginPath(); ctx.arc(bulbX, bulbY, 5 * scale, 0, Math.PI * 2); ctx.fill();
+    } 
+    // 3. Traffic Signs (Type 4)
+    else if (type === 4) {
+      const h = 70 * scale;
+      ctx.fillStyle = '#718096';
+      ctx.fillRect(x - 2 * scale, y - h, 4 * scale, h);
+      const signRadius = 14 * scale;
+      const signY = y - h - signRadius;
+      
+      const signType = Math.floor(s) % 4;
+      if (signType === 0) { // Speed Limit
+        ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e53e3e'; ctx.lineWidth = 3 * scale;
+        ctx.beginPath(); ctx.arc(x, signY, signRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#000'; ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText("60", x, signY + 4 * scale);
+      } else if (signType === 1) { // Stop Sign
+        ctx.fillStyle = '#e53e3e'; ctx.beginPath();
+        for(let a=0; a<8; a++) {
+          const angle = (a * Math.PI) / 4 + Math.PI/8;
+          const px = x + Math.cos(angle) * signRadius;
+          const py = signY + Math.sin(angle) * signRadius;
+          if(a===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(6 * scale)}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText("STOP", x, signY + 3 * scale);
+      } else if (signType === 2) { // No Entry
+        ctx.fillStyle = '#e53e3e'; ctx.beginPath(); ctx.arc(x, signY, signRadius, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillRect(x - signRadius + 4*scale, signY - 2*scale, signRadius*2 - 8*scale, 4*scale);
+      } else { // One Way
+        ctx.fillStyle = '#3182ce'; ctx.fillRect(x - signRadius, signY - signRadius, signRadius*2, signRadius*2);
+        ctx.fillStyle = '#fff'; ctx.beginPath();
+        ctx.moveTo(x - signRadius + 4*scale, signY); ctx.lineTo(x + signRadius - 4*scale, signY);
+        ctx.lineTo(x + signRadius - 8*scale, signY - 4*scale); ctx.moveTo(x + signRadius - 4*scale, signY);
+        ctx.lineTo(x + signRadius - 8*scale, signY + 4*scale); ctx.stroke();
+      }
+    } 
+    // 4. Bus Shelter (Type 5)
+    else if (type === 5) {
+      const sw = 60 * scale;
+      const sh = 45 * scale;
+      // Frame
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x - sw/2, y - sh, sw, 3 * scale); // Roof
+      ctx.fillRect(x - sw/2, y - sh, 4 * scale, sh); // Left
+      ctx.fillRect(x + sw/2 - 4 * scale, y - sh, 4 * scale, sh); // Right
+      
+      // Glass Back
+      ctx.fillStyle = 'rgba(144, 205, 244, 0.3)';
+      ctx.fillRect(x - sw/2 + 4 * scale, y - sh + 3 * scale, sw - 8 * scale, sh - 3 * scale);
+      
+      // Ad/Map Panel
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - sw/2 + 6 * scale, y - sh + 8 * scale, 12 * scale, 20 * scale);
+      ctx.fillStyle = '#3182ce';
+      ctx.fillRect(x - sw/2 + 8 * scale, y - sh + 10 * scale, 8 * scale, 2 * scale);
+      
+      // Bench inside
+      ctx.fillStyle = '#744210';
+      ctx.fillRect(x - sw/2.5, y - 12 * scale, sw / 1.25, 3 * scale);
+    } 
+    // 5. Trash Can (Type 6)
+    else if (type === 6) {
+      const tw = 12 * scale;
+      const th = 18 * scale;
+      ctx.fillStyle = '#4a5568';
+      ctx.beginPath(); ctx.roundRect(x - tw/2, y - th, tw, th, 2*scale); ctx.fill();
+      ctx.fillStyle = '#1a202c';
+      ctx.fillRect(x - tw/2 + 2*scale, y - th + 2*scale, tw - 4*scale, 2*scale);
+    } 
+    // 6. Fire Hydrant (Type 7)
+    else if (type === 7) {
+      const hw = 8 * scale;
+      const hh = 15 * scale;
+      ctx.fillStyle = '#e53e3e';
+      ctx.fillRect(x - hw/2, y - hh, hw, hh);
+      ctx.beginPath(); ctx.arc(x, y - hh, hw/2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c53030';
+      ctx.fillRect(x - hw/2 - 2*scale, y - hh + 4*scale, 2*scale, 3*scale);
+      ctx.fillRect(x + hw/2, y - hh + 4*scale, 2*scale, 3*scale);
+    }
+    // 7. Billboard (Type 8)
+    else if (type === 8) {
+      const bw = 100 * scale;
+      const bh = 50 * scale;
+      const bY = y - 90 * scale;
+      // Pillars
+      ctx.fillStyle = '#4a5568';
+      ctx.fillRect(x - bw/3, y - 90*scale, 5 * scale, 90 * scale);
+      ctx.fillRect(x + bw/3 - 5*scale, y - 90*scale, 5 * scale, 90 * scale);
+      // Board
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x - bw/2, bY - bh, bw, bh);
+      // Ad Content
+      const adColors = ['#f6ad55', '#4fd1c5', '#63b3ed'];
+      ctx.fillStyle = adColors[Math.floor(s) % 3];
+      ctx.fillRect(x - bw/2 + 5*scale, bY - bh + 5*scale, bw - 10*scale, bh - 10*scale);
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText("EXPRESS", x, bY - bh/2 + 5*scale);
+    }
+    // 8. Planter (Type 9)
+    else if (type === 9) {
+      const pw = 30 * scale;
+      const ph = 10 * scale;
+      ctx.fillStyle = '#a0aec0';
+      ctx.fillRect(x - pw/2, y - ph, pw, ph);
+      ctx.fillStyle = '#2f855a';
+      ctx.beginPath();
+      ctx.arc(x - pw/4, y - ph - 2*scale, 6*scale, 0, Math.PI*2);
+      ctx.arc(x + pw/4, y - ph - 2*scale, 6*scale, 0, Math.PI*2);
+      ctx.arc(x, y - ph - 4*scale, 8*scale, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // 9. Bench (Type 10+)
+    else {
+      const bw = 45 * scale;
+      const bh = 15 * scale;
+      // Legs
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(x - bw/2.5, y - bh, 3 * scale, bh);
+      ctx.fillRect(x + bw/2.5 - 3 * scale, y - bh, 3 * scale, bh);
+      // Seat
+      ctx.fillStyle = '#744210';
+      ctx.fillRect(x - bw/2, y - bh, bw, 4 * scale);
+      // Backrest
+      ctx.fillRect(x - bw/2, y - bh - 12 * scale, bw, 5 * scale);
+    }
+  } 
+  // Rural Props
+  else {
+    const type = Math.floor(s) % 5;
+    if (type === 0 || type === 1) { // Trees
+      ctx.fillStyle = '#4a2c10'; ctx.fillRect(x - 3*scale, y - 25*scale, 6*scale, 25*scale);
+      ctx.fillStyle = '#22543d'; ctx.beginPath(); ctx.arc(x, y - 45*scale, 30*scale, 0, Math.PI*2); ctx.fill();
+    } else if (type === 2) { // Small Hut
+      ctx.fillStyle = '#8b4513'; ctx.fillRect(x - 20*scale, y - 30*scale, 40*scale, 30*scale);
+      ctx.fillStyle = '#d69e2e'; ctx.beginPath(); ctx.moveTo(x - 25*scale, y - 30*scale); ctx.lineTo(x, y - 55*scale); ctx.lineTo(x + 25*scale, y - 30*scale); ctx.fill();
+    } else if (type === 3) { // Shed
+      ctx.fillStyle = '#4a5568'; ctx.fillRect(x - 20*scale, y - 35*scale, 40*scale, 35*scale);
+      ctx.fillStyle = '#718096'; ctx.beginPath(); ctx.moveTo(x - 22*scale, y - 35*scale); ctx.lineTo(x + 22*scale, y - 42*scale); ctx.lineTo(x + 22*scale, y - 35*scale); ctx.fill();
+    } else { // Barn
+       ctx.fillStyle = '#9b2c2c'; ctx.fillRect(x - 15*scale, y - 45*scale, 30*scale, 45*scale);
+    }
+  }
+  ctx.restore();
+};
+
 interface GameCanvasProps {
   state: GameState;
 }
@@ -12,11 +257,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
   const rainParticles = useRef<{ x: number, y: number, speed: number, length: number }[]>([]);
 
   useEffect(() => {
-    rainParticles.current = Array.from({ length: 250 }, () => ({
+    // Increased particle pool for intensity variation
+    rainParticles.current = Array.from({ length: 1000 }, () => ({
       x: Math.random() * CANVAS_WIDTH,
       y: Math.random() * CANVAS_HEIGHT,
-      speed: 15 + Math.random() * 10,
-      length: 12 + Math.random() * 12
+      speed: 10 + Math.random() * 10,
+      length: 8 + Math.random() * 10
     }));
   }, []);
 
@@ -30,18 +276,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
 
     const render = () => {
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      
       const horizon = CANVAS_HEIGHT * 0.45;
       
-      // Main Scene
-      draw3DEnvironment(ctx, state, horizon, false);
+      draw3DEnvironment(ctx, state, horizon);
       drawHeadlightBeams(ctx, state);
       drawWeatherEffects(ctx, state);
       draw3DBus(ctx, state);
-      
-      // Mirrors (Realistic Reflections)
       drawSideMirrors(ctx, state);
-      
       drawWindshieldEffects(ctx, state);
       
       animationFrameId = window.requestAnimationFrame(render);
@@ -55,17 +296,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     const mirrorW = 100;
     const mirrorH = 180;
     const padding = 20;
-
-    // Left Mirror
     drawMirror(ctx, state, padding, CANVAS_HEIGHT / 3, mirrorW, mirrorH, true);
-    // Right Mirror
     drawMirror(ctx, state, CANVAS_WIDTH - mirrorW - padding, CANVAS_HEIGHT / 3, mirrorW, mirrorH, false);
   };
 
   const drawMirror = (ctx: CanvasRenderingContext2D, state: GameState, x: number, y: number, w: number, h: number, isLeft: boolean) => {
     ctx.save();
-    
-    // Draw Bezel
     ctx.fillStyle = '#1a202c';
     ctx.beginPath();
     ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 15);
@@ -74,15 +310,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Clipping for reflection
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 12);
     ctx.clip();
 
-    // Render inverted environment
     const mirrorHorizon = h * 0.4;
-    
-    // Background (Sky)
     const skyGrad = ctx.createLinearGradient(x, y, x, y + mirrorHorizon);
     if (state.weather === WeatherType.RAIN) {
       skyGrad.addColorStop(0, '#1a202c'); skyGrad.addColorStop(1, '#4a5568');
@@ -92,7 +324,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     ctx.fillStyle = skyGrad;
     ctx.fillRect(x, y, w, h);
 
-    // Render rear road segments
     const segments = 15;
     let curveAccumulator = 0;
     const roadBaseColor = state.terrain === TerrainType.CITY ? '#171923' : '#1c4532';
@@ -100,117 +331,72 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
     for (let i = 0; i < segments; i++) {
       const z = 1 - (i / segments);
       const nextZ = 1 - ((i + 1) / segments);
-      
       const ry = y + mirrorHorizon + (1 - z) * (h - mirrorHorizon);
       const nextRy = y + mirrorHorizon + (1 - nextZ) * (h - mirrorHorizon);
-      
       const rw = 20 + (z * z * 150);
       const nextRw = 20 + (nextZ * nextZ * 150);
-
-      // We use the negative curve to look "back"
       curveAccumulator -= state.roadCurve * (1 - z);
-      // Flipped steering impact for mirror
       const steerShift = state.steeringAngle * 0.5 * (isLeft ? 1 : -1);
       const rx = x + (w / 2) + (curveAccumulator * 100 * z) + steerShift;
       const nextRx = x + (w / 2) + ((curveAccumulator - state.roadCurve * (1 - nextZ)) * 100 * nextZ) + steerShift;
-
       const isAlt = Math.floor((state.currentDistance - i * 40) / 40) % 2 === 0;
-
-      // Ground
       ctx.fillStyle = isAlt ? roadBaseColor : '#2d3748';
       ctx.fillRect(x, ry, w, nextRy - ry + 1);
-
-      // Road
       ctx.fillStyle = state.road === RoadType.PAVED ? (isAlt ? '#2d3748' : '#111') : '#5c2d0b';
       ctx.beginPath();
       ctx.moveTo(rx - rw / 2, ry); ctx.lineTo(rx + rw / 2, ry);
       ctx.lineTo(nextRx + nextRw / 2, nextRy); ctx.lineTo(nextRx - nextRw / 2, nextRy);
       ctx.fill();
-
-      // Mirror-specific vignette / dirt
-      ctx.fillStyle = 'rgba(0,0,0,0.02)';
-      ctx.fillRect(x, ry, w, nextRy - ry + 1);
     }
-
-    // Glass sheen
     const glassGrad = ctx.createLinearGradient(x, y, x + w, y + h);
     glassGrad.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-    glassGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0)');
     glassGrad.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
     ctx.fillStyle = glassGrad;
     ctx.fillRect(x, y, w, h);
-
-    // Rear bus corner visible in mirror?
     ctx.fillStyle = state.selectedBus.color;
     const busEdgeX = isLeft ? x : x + w - 15;
     ctx.fillRect(busEdgeX, y + h * 0.4, 15, h * 0.6);
-
     ctx.restore();
   };
 
   const drawHeadlightBeams = (ctx: CanvasRenderingContext2D, state: GameState) => {
     if (!state.headlightsOn) return;
-
     const { selectedBus, steeringAngle, weather } = state;
     const centerX = CANVAS_WIDTH / 2 + steeringAngle * 2.5;
     const busY = CANVAS_HEIGHT - 30;
-    
     let busW = 280;
-    if (selectedBus.size === 'Small') busW = 280;
     if (selectedBus.size === 'Medium') busW = 340;
     if (selectedBus.size === 'Large') busW = 400;
-
     const beamLength = weather === WeatherType.FOG ? 150 : 350;
     const beamWidth = weather === WeatherType.FOG ? 250 : 200;
-
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-
     const drawBeam = (startX: number) => {
       const grad = ctx.createLinearGradient(startX, busY - 40, startX, busY - 40 - beamLength);
       const alpha = weather === WeatherType.FOG ? 0.6 : 0.4;
-      grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-      grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.1)');
+      grad.addColorStop(0, "rgba(255, 255, 255, " + alpha + ")");
       grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.moveTo(startX - 20, busY - 40);
       ctx.lineTo(startX - beamWidth, busY - 40 - beamLength);
       ctx.lineTo(startX + beamWidth, busY - 40 - beamLength);
       ctx.lineTo(startX + 20, busY - 40);
-      ctx.closePath();
       ctx.fill();
     };
-
     drawBeam(centerX - busW/2 + 50);
     drawBeam(centerX + busW/2 - 50);
     ctx.restore();
   };
 
-  const draw3DEnvironment = (ctx: CanvasRenderingContext2D, state: GameState, horizon: number, isMirror: boolean) => {
+  const draw3DEnvironment = (ctx: CanvasRenderingContext2D, state: GameState, horizon: number) => {
     const { currentDistance, roadCurve, weather, terrain, road: roadType } = state;
-    
-    if (!isMirror) {
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, horizon);
-      if (weather === WeatherType.RAIN) {
-        skyGrad.addColorStop(0, '#1a202c'); skyGrad.addColorStop(1, '#4a5568');
-      } else if (weather === WeatherType.FOG) {
-        skyGrad.addColorStop(0, '#718096'); skyGrad.addColorStop(1, '#cbd5e0');
-      } else {
-        skyGrad.addColorStop(0, '#2b6cb0'); skyGrad.addColorStop(1, '#bee3f8');
-      }
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, horizon);
-
-      if (weather === WeatherType.CLEAR) {
-        const sunGrad = ctx.createRadialGradient(CANVAS_WIDTH * 0.8, horizon * 0.3, 10, CANVAS_WIDTH * 0.8, horizon * 0.3, 150);
-        sunGrad.addColorStop(0, 'rgba(255, 255, 200, 0.3)');
-        sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = sunGrad;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, horizon);
-      }
-    }
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, horizon);
+    if (weather === WeatherType.RAIN) { skyGrad.addColorStop(0, '#1a202c'); skyGrad.addColorStop(1, '#4a5568'); }
+    else if (weather === WeatherType.FOG) { skyGrad.addColorStop(0, '#718096'); skyGrad.addColorStop(1, '#cbd5e0'); }
+    else { skyGrad.addColorStop(0, '#2b6cb0'); skyGrad.addColorStop(1, '#bee3f8'); }
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, horizon);
 
     let groundBaseColor = terrain === TerrainType.CITY ? '#171923' : (terrain === TerrainType.VILLAGE ? '#744210' : '#1c4532');
     if (weather === WeatherType.RAIN) groundBaseColor = '#0d0d12';
@@ -226,361 +412,109 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ state }) => {
       const nextY = horizon + (1 - nextZ) * (CANVAS_HEIGHT - horizon);
       const w = 40 + (z * z * 600);
       const nextW = 40 + (nextZ * nextZ * 600);
-
       curveAccumulator += roadCurve * (1 - z);
       const x = (CANVAS_WIDTH / 2) + curveAccumulator * 300 * z;
       const nextX = (CANVAS_WIDTH / 2) + (curveAccumulator + roadCurve * (1-nextZ)) * 300 * nextZ;
-
       const segWorldDist = currentDistance + (segments - i) * 20;
       const isAlt = Math.floor(segWorldDist / 40) % 2 === 0;
-      
       ctx.fillStyle = isAlt ? groundBaseColor : (terrain === TerrainType.CITY ? '#2d3748' : '#276749');
-      ctx.beginPath();
-      ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.lineTo(CANVAS_WIDTH, nextY); ctx.lineTo(0, nextY);
-      ctx.fill();
-
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.lineTo(CANVAS_WIDTH, nextY); ctx.lineTo(0, nextY); ctx.fill();
       ctx.fillStyle = roadType === RoadType.PAVED ? (isAlt ? '#2d3748' : '#1a202c') : (isAlt ? '#8b4513' : '#5c2d0b');
-      ctx.beginPath();
-      ctx.moveTo(x - w / 2, y); ctx.lineTo(x + w / 2, y); ctx.lineTo(nextX + nextW / 2, nextY); ctx.lineTo(nextX - nextW / 2, nextY);
-      ctx.fill();
-
-      if (roadType === RoadType.PAVED && isAlt) {
-        ctx.fillStyle = '#f6e05e';
-        ctx.fillRect(x - (1 * z), y, 2 * z, nextY - y + 1);
-      }
-
-      if (fogColor) {
-        const fogIntensity = Math.pow(1 - z, 3);
-        ctx.fillStyle = fogColor;
-        ctx.globalAlpha = fogIntensity;
-        ctx.fillRect(0, y, CANVAS_WIDTH, nextY - y + 1);
-        ctx.globalAlpha = 1.0;
-      }
-
-      // Traffic Light Integration
+      ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.lineTo(x + w / 2, y); ctx.lineTo(nextX + nextW / 2, nextY); ctx.lineTo(nextX - nextW / 2, nextY); ctx.fill();
+      if (roadType === RoadType.PAVED && isAlt) { ctx.fillStyle = '#f6e05e'; ctx.fillRect(x - (1 * z), y, 2 * z, nextY - y + 1); }
+      if (fogColor) { ctx.fillStyle = fogColor; ctx.globalAlpha = Math.pow(1 - z, 3); ctx.fillRect(0, y, CANVAS_WIDTH, nextY - y + 1); ctx.globalAlpha = 1.0; }
       if (terrain === TerrainType.CITY) {
         const lightIdx = Math.round(segWorldDist / TRAFFIC_LIGHT_DISTANCE);
-        const lightWorldDist = lightIdx * TRAFFIC_LIGHT_DISTANCE;
-        if (Math.abs(segWorldDist - lightWorldDist) < 10) {
-            drawTrafficLight(ctx, x + w/2 + 30 * z, y, z, lightIdx);
-        }
+        if (Math.abs(segWorldDist - (lightIdx * TRAFFIC_LIGHT_DISTANCE)) < 10) drawTrafficLight(ctx, x + w/2 + 30 * z, y, z, lightIdx);
       }
-
-      const propInterval = terrain === TerrainType.CITY ? 4 : 6;
-      if (i % propInterval === 0) {
+      if (i % (terrain === TerrainType.CITY ? 4 : 6) === 0) {
         const side = (seed(i + Math.floor(currentDistance/1000)) % 2 === 0) ? 1 : -1;
         draw3DProp(ctx, x + (w/2 + 50*z) * side, y, z, terrain, seed(i), weather);
       }
-
-      const stopDist = state.nextStopDistance - currentDistance;
-      const zebraZ = 1 - (stopDist / 1000);
-      if (Math.abs(z - zebraZ) < 0.02) {
-        drawPassengers(ctx, x + (w/2 + 15*z), y, z, state.isFull);
-      }
-    }
-  };
-
-  const drawTrafficLight = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, lightIdx: number) => {
-    const scale = z * 2.5;
-    const cycleTime = (Date.now() + lightIdx * 5000) % TRAFFIC_LIGHT_CYCLE;
-    
-    let activeBulb = 2; // 0: Red, 1: Yellow, 2: Green
-    if (cycleTime < 6000) activeBulb = 0;
-    else if (cycleTime < 8000) activeBulb = 1;
-
-    ctx.save();
-    
-    // Main Pole
-    ctx.fillStyle = '#2d3748';
-    ctx.fillRect(x - 2 * scale, y - 90 * scale, 4 * scale, 90 * scale);
-    
-    // Light Box (Housing)
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(x - 8 * scale, y - 95 * scale, 16 * scale, 40 * scale);
-    
-    // Draw Individual Bulbs
-    const drawBulb = (bulbIdx: number, color: string, isActive: boolean) => {
-      const bulbY = y - 95 * scale + (bulbIdx * 11 * scale) + 9 * scale;
-      ctx.fillStyle = isActive ? color : '#000';
-      
-      if (isActive) {
-        ctx.shadowBlur = 20 * scale;
-        ctx.shadowColor = color;
-      }
-      
-      ctx.beginPath();
-      ctx.arc(x, bulbY, 4 * scale, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    };
-
-    drawBulb(0, '#ef4444', activeBulb === 0);
-    drawBulb(1, '#f59e0b', activeBulb === 1);
-    drawBulb(2, '#10b981', activeBulb === 2);
-
-    ctx.restore();
-  };
-
-  const seed = (s: number) => Math.abs(Math.sin(s) * 10000);
-
-  const draw3DProp = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, terrain: TerrainType, s: number, weather: WeatherType) => {
-    const scale = z * 2.5;
-    ctx.save();
-    if (weather === WeatherType.FOG) ctx.globalAlpha = Math.max(0, z * 2 - 0.5);
-
-    if (terrain === TerrainType.CITY) {
-      const type = s % 8; // Increased modulus for more variety
-      if (type < 3) { // Enhanced Buildings
-        const h = (120 + (s % 300)) * scale;
-        const w = (60 + (s % 80)) * scale;
-        ctx.fillStyle = '#2d3748';
-        ctx.fillRect(x - w/2, y - h, w, h);
-        // Windows
-        ctx.fillStyle = '#f6e05e';
-        const oldAlpha = ctx.globalAlpha;
-        ctx.globalAlpha *= 0.3;
-        for (let row = 0; row < 5; row++) {
-          for (let col = 0; col < 2; col++) {
-            ctx.fillRect(x - w/4 + (col * w/2.5) - w/10, y - h + (row * h/6) + 10*scale, w/6, h/10);
-          }
-        }
-        ctx.globalAlpha = oldAlpha;
-      } else if (type === 3) { // Enhanced Street Lamp
-        const h = 90 * scale;
-        ctx.fillStyle = '#4a5568';
-        ctx.fillRect(x - 2 * scale, y - h, 4 * scale, h); // post
-        ctx.fillRect(x - 2 * scale, y - h, 20 * scale, 3 * scale); // arm
-        
-        // Glow and bulb
-        const bulbX = x + 18 * scale;
-        const bulbY = y - h + 2 * scale;
-        const lampGlow = ctx.createRadialGradient(bulbX, bulbY, 0, bulbX, bulbY, 25 * scale);
-        lampGlow.addColorStop(0, 'rgba(254, 252, 191, 0.5)');
-        lampGlow.addColorStop(1, 'rgba(254, 252, 191, 0)');
-        ctx.fillStyle = lampGlow;
-        ctx.beginPath(); ctx.arc(bulbX, bulbY, 25 * scale, 0, Math.PI * 2); ctx.fill();
-        
-        ctx.fillStyle = '#fff9c4';
-        ctx.beginPath(); ctx.arc(bulbX, bulbY, 4 * scale, 0, Math.PI * 2); ctx.fill();
-      } else if (type === 4) { // Enhanced Traffic Signs
-        const h = 60 * scale;
-        ctx.fillStyle = '#718096';
-        ctx.fillRect(x - 1.5 * scale, y - h, 3 * scale, h); // post
-        const signRadius = 12 * scale;
-        
-        if (s % 2 === 0) { // Speed Limit
-          ctx.fillStyle = '#fff';
-          ctx.strokeStyle = '#e53e3e';
-          ctx.lineWidth = 2 * scale;
-          ctx.beginPath(); ctx.arc(x, y - h - signRadius, signRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#000';
-          ctx.font = `bold ${10 * scale}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText("50", x, y - h - signRadius + 4 * scale);
-        } else { // STOP Sign
-          ctx.fillStyle = '#e53e3e';
-          ctx.beginPath();
-          for(let a=0; a<8; a++) {
-            const angle = (a * Math.PI) / 4 + Math.PI/8;
-            const px = x + Math.cos(angle) * signRadius;
-            const py = (y - h - signRadius) + Math.sin(angle) * signRadius;
-            if(a===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          }
-          ctx.closePath(); ctx.fill();
-          ctx.fillStyle = '#fff';
-          ctx.font = `bold ${6 * scale}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText("STOP", x, y - h - signRadius + 2.5 * scale);
-        }
-      } else if (type === 5) { // Enhanced Bus Shelter
-        const sw = 50 * scale;
-        const sh = 40 * scale;
-        ctx.fillStyle = '#2d3748';
-        ctx.fillRect(x - sw/2, y - sh, sw, 3 * scale); // roof
-        ctx.fillRect(x - sw/2, y - sh, 3 * scale, sh); // side L
-        ctx.fillRect(x + sw/2 - 3 * scale, y - sh, 3 * scale, sh); // side R
-        // Glass back
-        ctx.fillStyle = 'rgba(160, 174, 192, 0.4)';
-        ctx.fillRect(x - sw/2 + 3 * scale, y - sh + 3 * scale, sw - 6 * scale, sh - 3 * scale);
-        // Bench inside shelter
-        ctx.fillStyle = '#4a5568';
-        ctx.fillRect(x - sw/3, y - 12 * scale, (sw*2)/3, 3 * scale);
-      } else if (type === 6) { // NEW: Trash Can
-        const tw = 10 * scale;
-        const th = 15 * scale;
-        ctx.fillStyle = '#4a5568'; // Dark metal
-        ctx.fillRect(x - tw/2, y - th, tw, th);
-        ctx.fillStyle = '#2d3748'; // Lid rim
-        ctx.fillRect(x - (tw/2 + scale), y - th - scale, tw + 2 * scale, 2 * scale);
-        // Detail lines
-        ctx.strokeStyle = '#1a202c';
-        ctx.lineWidth = 0.5 * scale;
-        ctx.beginPath();
-        ctx.moveTo(x - tw/4, y - th); ctx.lineTo(x - tw/4, y);
-        ctx.moveTo(x + tw/4, y - th); ctx.lineTo(x + tw/4, y);
-        ctx.stroke();
-      } else { // NEW: Standalone Bench
-        const bw = 40 * scale;
-        const bh = 18 * scale;
-        // Legs
-        ctx.fillStyle = '#1a202c';
-        ctx.fillRect(x - bw/2.5, y - bh, 2 * scale, bh);
-        ctx.fillRect(x + bw/2.5 - 2 * scale, y - bh, 2 * scale, bh);
-        // Slats (Wood)
-        ctx.fillStyle = '#744210';
-        ctx.fillRect(x - bw/2, y - bh, bw, 3 * scale); // seat top
-        ctx.fillRect(x - bw/2, y - bh + 4 * scale, bw, 3 * scale); // seat bottom
-        // Backrest
-        ctx.fillRect(x - bw/2, y - bh - 10 * scale, bw, 4 * scale);
-        ctx.fillStyle = '#1a202c'; // Backrest support
-        ctx.fillRect(x - bw/2.5, y - bh - 10 * scale, 2 * scale, 10 * scale);
-        ctx.fillRect(x + bw/2.5 - 2 * scale, y - bh - 10 * scale, 2 * scale, 10 * scale);
-      }
-    } else { // Enhanced Village Buildings (Mixed types)
-      const type = s % 5;
-      if (type === 0 || type === 1) { // Trees
-        ctx.fillStyle = '#4a2c10'; ctx.fillRect(x - 3*scale, y - 25*scale, 6*scale, 25*scale);
-        ctx.fillStyle = '#22543d'; ctx.beginPath(); ctx.arc(x, y - 45*scale, 30*scale, 0, Math.PI*2); ctx.fill();
-      } else if (type === 2) { // Traditional Thatched House
-        ctx.fillStyle = '#8b4513'; // mud/wood walls
-        ctx.fillRect(x - 20*scale, y - 30*scale, 40*scale, 30*scale);
-        ctx.fillStyle = '#d69e2e'; // thatched roof
-        ctx.beginPath();
-        ctx.moveTo(x - 25*scale, y - 30*scale);
-        ctx.lineTo(x, y - 55*scale);
-        ctx.lineTo(x + 25*scale, y - 30*scale);
-        ctx.fill();
-      } else if (type === 3) { // Semi-permanent building (Corrugated)
-        ctx.fillStyle = '#4a5568'; // grey walls
-        ctx.fillRect(x - 20*scale, y - 35*scale, 40*scale, 35*scale);
-        ctx.fillStyle = '#718096'; // metallic roof
-        ctx.beginPath();
-        ctx.moveTo(x - 22*scale, y - 35*scale);
-        ctx.lineTo(x + 22*scale, y - 42*scale);
-        ctx.lineTo(x + 22*scale, y - 35*scale);
-        ctx.fill();
-      } else { // Permanent brick building
-         ctx.fillStyle = '#9b2c2c'; // brick red
-         ctx.fillRect(x - 15*scale, y - 45*scale, 30*scale, 45*scale);
-         ctx.fillStyle = '#81e6d9'; // small windows
-         const oldAlpha = ctx.globalAlpha;
-         ctx.globalAlpha *= 0.6;
-         ctx.fillRect(x - 8*scale, y - 35*scale, 6*scale, 6*scale);
-         ctx.fillRect(x + 2*scale, y - 35*scale, 6*scale, 6*scale);
-         ctx.globalAlpha = oldAlpha;
-      }
-    }
-    ctx.restore();
-  };
-
-  const drawPassengers = (ctx: CanvasRenderingContext2D, x: number, y: number, z: number, isFull: boolean) => {
-    const scale = z * 2.5;
-    for (let i = 0; i < 3; i++) {
-      const px = x + (i * 12 * scale);
-      const py = y - (2 * scale);
-      ctx.fillStyle = isFull ? '#4a5568' : '#ed8936';
-      ctx.beginPath(); ctx.arc(px, py - 18 * scale, 5 * scale, 0, Math.PI * 2); ctx.fill();
-      ctx.fillRect(px - 4 * scale, py - 15 * scale, 8 * scale, 15 * scale);
+      if (Math.abs(z - (1 - (state.nextStopDistance - currentDistance) / 1000)) < 0.02) drawPassengers(ctx, x + (w/2 + 15*z), y, z, state.isFull);
     }
   };
 
   const draw3DBus = (ctx: CanvasRenderingContext2D, state: GameState) => {
     const { selectedBus, steeringAngle, headlightsOn, indicatorStatus } = state;
-    const centerX = CANVAS_WIDTH / 2;
     const busY = CANVAS_HEIGHT - 30;
-    
-    let busW = 280;
-    let busH = 160;
-    if (selectedBus.size === 'Small') { busW = 280; busH = 160; }
+    let busW = 280, busH = 160;
     if (selectedBus.size === 'Medium') { busW = 340; busH = 190; }
     if (selectedBus.size === 'Large') { busW = 400; busH = 220; }
-
     ctx.save();
-    ctx.translate(centerX + steeringAngle * 2.5, busY);
-    
+    ctx.translate(CANVAS_WIDTH / 2 + steeringAngle * 2.5, busY);
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(0, 10, busW/2, 25, 0, 0, Math.PI*2); ctx.fill();
-
     ctx.fillStyle = selectedBus.color;
     ctx.beginPath(); ctx.roundRect(-busW/2, -busH, busW, busH, 20); ctx.fill();
-
-    ctx.fillStyle = '#1a202c';
-    ctx.fillRect(-busW/2 + 10, -busH + 10, busW - 20, busH/1.4);
-
-    const windshieldGrad = ctx.createLinearGradient(0, -busH, 0, -busH/2);
-    windshieldGrad.addColorStop(0, 'rgba(160, 174, 192, 0.1)');
-    windshieldGrad.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-    ctx.fillStyle = windshieldGrad;
-    ctx.fillRect(-busW/2 + 15, -busH + 15, busW - 30, busH/1.5);
-    
+    ctx.fillStyle = '#1a202c'; ctx.fillRect(-busW/2 + 10, -busH + 10, busW - 20, busH/1.4);
     const blink = Math.floor(Date.now() / 400) % 2 === 0;
     const lightColor = headlightsOn ? '#fff' : '#f6e05e';
     ctx.fillStyle = lightColor;
     ctx.beginPath(); ctx.arc(-busW/2 + 50, -40, 25, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(busW/2 - 50, -40, 25, 0, Math.PI*2); ctx.fill();
-
-    if (indicatorStatus === IndicatorType.LEFT && blink) {
-      ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(-busW/2 + 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill();
-    }
-    if (indicatorStatus === IndicatorType.RIGHT && blink) {
-      ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(busW/2 - 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill();
-    }
+    if (indicatorStatus === IndicatorType.LEFT && blink) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(-busW/2 + 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); }
+    if (indicatorStatus === IndicatorType.RIGHT && blink) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(busW/2 - 20, -busH + 30, 15, 0, Math.PI*2); ctx.fill(); }
     ctx.restore();
   };
 
   const drawWeatherEffects = (ctx: CanvasRenderingContext2D, state: GameState) => {
-    const { weather } = state;
-    if (weather === WeatherType.RAIN) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(174, 194, 224, 0.4)';
-      rainParticles.current.forEach(p => {
-        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 1, p.y + p.length); ctx.stroke();
-        p.y += p.speed; if (p.y > CANVAS_HEIGHT) p.y = -p.length;
-      });
+    if (state.weather === WeatherType.RAIN) {
+      const { rainIntensity } = state;
+      ctx.save(); 
+      ctx.strokeStyle = `rgba(174, 194, 224, ${0.1 + rainIntensity * 0.4})`;
+      ctx.lineWidth = 1 + rainIntensity * 1.5;
+      
+      // Only draw a portion of particles based on intensity
+      const particleCount = Math.floor(rainParticles.current.length * rainIntensity);
+      
+      for (let i = 0; i < particleCount; i++) {
+        const p = rainParticles.current[i];
+        const effectiveSpeed = p.speed * (0.8 + rainIntensity * 0.4);
+        const effectiveLength = p.length * (0.7 + rainIntensity * 0.6);
+        
+        ctx.beginPath(); 
+        ctx.moveTo(p.x, p.y); 
+        ctx.lineTo(p.x + 1, p.y + effectiveLength); 
+        ctx.stroke();
+        
+        p.y += effectiveSpeed; 
+        if (p.y > CANVAS_HEIGHT) p.y = -effectiveLength;
+      }
       ctx.restore();
     }
   };
 
   const drawWindshieldEffects = (ctx: CanvasRenderingContext2D, state: GameState) => {
-    const { weather, wipersActive, selectedBus, steeringAngle } = state;
+    const { weather, wipersActive, selectedBus, steeringAngle, rainIntensity } = state;
     if (weather !== WeatherType.RAIN && weather !== WeatherType.FOG) return;
-
     const centerX = CANVAS_WIDTH / 2 + steeringAngle * 2.5;
     const busY = CANVAS_HEIGHT - 30;
-    let busW = 280;
-    let busH = 160;
-    if (selectedBus.size === 'Small') { busW = 280; busH = 160; }
+    let busW = 280, busH = 160;
     if (selectedBus.size === 'Medium') { busW = 340; busH = 190; }
     if (selectedBus.size === 'Large') { busW = 400; busH = 220; }
-
-    const glassX = centerX - busW/2 + 15;
-    const glassY = busY - busH + 15;
-    const glassW = busW - 30;
-    const glassH = busH/1.5;
-
+    const glassX = centerX - busW/2 + 15, glassY = busY - busH + 15, glassW = busW - 30, glassH = busH/1.5;
     ctx.save();
-    if (weather === WeatherType.FOG) {
-      ctx.fillStyle = 'rgba(203, 213, 224, 0.15)';
+    
+    if (weather === WeatherType.FOG) { 
+      ctx.fillStyle = 'rgba(203, 213, 224, 0.15)'; 
+      ctx.fillRect(glassX, glassY, glassW, glassH); 
+    } else if (weather === WeatherType.RAIN) {
+      // Visual feedback of rain on windshield
+      ctx.fillStyle = `rgba(174, 194, 224, ${rainIntensity * 0.1})`;
       ctx.fillRect(glassX, glassY, glassW, glassH);
     }
-    if (weather === WeatherType.RAIN && !wipersActive) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      for (let i = 0; i < 40; i++) {
-        const rx = glassX + Math.random() * glassW;
-        const ry = glassY + Math.random() * glassH;
-        ctx.beginPath(); ctx.arc(rx, ry, 2 + Math.random()*5, 0, Math.PI*2); ctx.fill();
-      }
-    }
+
     if (wipersActive) {
-      const wiperAngle = Math.sin(Date.now() / 300) * 1.2;
+      const wiperSpeed = 300 - (rainIntensity * 100); // Faster wipers with more rain
+      const wiperAngle = Math.sin(Date.now() / wiperSpeed) * 1.2;
       ctx.strokeStyle = '#2d3748'; ctx.lineWidth = 4; ctx.lineCap = 'round';
       const drawWiper = (pivotX: number) => {
         ctx.beginPath(); ctx.moveTo(pivotX, glassY + glassH);
         ctx.lineTo(pivotX + Math.sin(wiperAngle) * glassH * 0.9, glassY + glassH - Math.cos(wiperAngle) * glassH * 0.9);
         ctx.stroke();
       };
-      drawWiper(glassX + glassW * 0.25);
-      drawWiper(glassX + glassW * 0.75);
+      drawWiper(glassX + glassW * 0.25); drawWiper(glassX + glassW * 0.75);
     }
     ctx.restore();
   };

@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { GameState, WeatherType, IndicatorType } from '../types';
+import { SPEED_LIMITS } from '../constants';
 
 interface DashboardProps {
   state: GameState;
@@ -23,8 +24,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   const maxSpeed = state.selectedBus.maxSpeed;
   const currentSpeed = state.speed;
   const speedPercentage = Math.min(1, currentSpeed / maxSpeed);
-  // Angle sweep: -120deg to +120deg (240 degree total sweep)
   const needleRotation = (speedPercentage * 240) - 120;
+  
+  const currentLimit = SPEED_LIMITS[state.terrain];
+  const isSpeeding = currentSpeed > currentLimit;
 
   return (
     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-6xl h-40 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent backdrop-blur-[2px] border-t border-white/5 flex items-end justify-between px-16 pb-6 pointer-events-auto z-20">
@@ -86,14 +89,12 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Speedometer Gauge */}
         <div className="relative w-32 h-32 flex items-center justify-center">
           <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
-            {/* Background Circle */}
             <circle 
               cx="50" cy="50" r="45" 
               fill="none" 
               stroke="rgba(255,255,255,0.05)" 
               strokeWidth="6" 
             />
-            {/* Speed Arc */}
             <circle 
               cx="50" cy="50" r="45" 
               fill="none" 
@@ -113,7 +114,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             </defs>
           </svg>
           
-          {/* Ticks and Numbers */}
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-full h-full relative">
                {[0, 20, 40, 60, 80, 100, 120].map((val) => {
@@ -131,7 +131,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Needle */}
           <div 
             className="absolute left-1/2 top-1/2 w-[45%] h-1 bg-red-500 origin-left -translate-y-1/2 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.8)] transition-transform duration-150 ease-out"
             style={{ transform: `rotate(${needleRotation}deg)` }}
@@ -139,9 +138,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-slate-900 border-2 border-red-500"></div>
           </div>
 
-          {/* Center Info */}
+          {/* Center Info - SPEEDING INDICATOR */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-            <span className="text-xl font-mono font-black text-white tabular-nums">{Math.round(currentSpeed)}</span>
+            <span className={`text-xl font-mono font-black tabular-nums transition-colors duration-300 ${isSpeeding ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+              {Math.round(currentSpeed)}
+            </span>
             <span className="text-[7px] font-black text-white/40 uppercase tracking-tighter">KM/H</span>
           </div>
         </div>
