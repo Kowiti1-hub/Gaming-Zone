@@ -29,6 +29,40 @@ export const getNarration = async (driver: Driver, terrain: TerrainType, isRest:
   }
 };
 
+export const editImageWithAI = async (base64Image: string, prompt: string): Promise<string | null> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/png',
+              data: base64Image,
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+      },
+    });
+
+    const candidate = response.candidates?.[0];
+    if (!candidate) return null;
+
+    for (const part of candidate.content.parts) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("AI Image Edit Error:", error);
+    return null;
+  }
+};
+
 export const getDriverIntroAudio = async (driver: Driver): Promise<string | null> => {
   try {
     const prompt = `Say a short, enthusiastic 1-sentence greeting as ${driver.name} from ${driver.origin}. 

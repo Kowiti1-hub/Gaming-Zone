@@ -23,7 +23,7 @@ import {
   TRAFFIC_LIGHT_CYCLE,
   SPEED_LIMITS
 } from './constants';
-import { getNarration } from './services/geminiService';
+import { getNarration, editImageWithAI } from './services/geminiService';
 import { audioService } from './services/audioService';
 
 const INITIAL_STATE: GameState = {
@@ -62,6 +62,8 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [narration, setNarration] = useState<string>("");
   const [showMenu, setShowMenu] = useState(true);
+  const [aiEditedImage, setAiEditedImage] = useState<string | null>(null);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
   
   const stateRef = useRef(gameState);
   stateRef.current = gameState;
@@ -175,8 +177,23 @@ const App: React.FC = () => {
     setGameState(prev => ({ ...prev, gear }));
   }, []);
 
+  const handleAIImageEdit = async (prompt: string) => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+
+    setIsAiProcessing(true);
+    // Convert canvas to base64 (stripped of prefix)
+    const base64 = canvas.toDataURL('image/png').split(',')[1];
+    
+    const result = await editImageWithAI(base64, prompt);
+    if (result) {
+      setAiEditedImage(result);
+    }
+    setIsAiProcessing(false);
+  };
+
   useEffect(() => {
-    if (gameState.gameStatus !== 'DRIVING') return;
+    if (gameState.gameStatus !== 'DRIVING' || isAiProcessing || aiEditedImage) return;
 
     const interval = setInterval(() => {
       const isAccelerating = keysPressed.current['w'] || keysPressed.current['arrowup'];
@@ -344,7 +361,7 @@ const App: React.FC = () => {
     }, 16);
 
     return () => clearInterval(interval);
-  }, [gameState.gameStatus, triggerStop, triggerPenalty]);
+  }, [gameState.gameStatus, triggerStop, triggerPenalty, isAiProcessing, aiEditedImage]);
 
   const handleStartGame = (driver: Driver, bus: Bus) => {
     audioService.init(); 
@@ -383,6 +400,10 @@ const App: React.FC = () => {
             onOpenDoors={() => { if(Math.abs(gameState.speed) < 5) triggerStop(gameState.terrain === TerrainType.VILLAGE) }}
             onRadioCheck={handleRadioCheck}
             onSetRainIntensity={handleSetRainIntensity}
+            onAIEdit={handleAIImageEdit}
+            isAiProcessing={isAiProcessing}
+            aiResult={aiEditedImage}
+            onCloseAIResult={() => setAiEditedImage(null)}
           />
         )}
       </div>

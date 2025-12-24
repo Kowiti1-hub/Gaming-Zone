@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { GameState, WeatherType } from '../types';
 import Dashboard from './Dashboard';
 import { VILLAGE_THRESHOLD, SPEED_LIMITS } from '../constants';
@@ -13,6 +13,10 @@ interface HUDProps {
   onOpenDoors: () => void;
   onRadioCheck: () => void;
   onSetRainIntensity: (val: number) => void;
+  onAIEdit: (prompt: string) => void;
+  isAiProcessing: boolean;
+  aiResult: string | null;
+  onCloseAIResult: () => void;
 }
 
 const HUD: React.FC<HUDProps> = ({ 
@@ -23,8 +27,15 @@ const HUD: React.FC<HUDProps> = ({
   onToggleRearView,
   onOpenDoors, 
   onRadioCheck,
-  onSetRainIntensity
+  onSetRainIntensity,
+  onAIEdit,
+  isAiProcessing,
+  aiResult,
+  onCloseAIResult
 }) => {
+  const [showAiLab, setShowAiLab] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+
   const weatherIcons: Record<WeatherType, string> = {
     [WeatherType.CLEAR]: "☀️",
     [WeatherType.RAIN]: "🌧️",
@@ -33,7 +44,13 @@ const HUD: React.FC<HUDProps> = ({
 
   const reflectionOffset = (state.currentDistance % 1000) / 10;
   const currentLimit = SPEED_LIMITS[state.terrain];
-  const isSpeeding = state.speed > currentLimit;
+
+  const handleAiSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+    onAIEdit(aiPrompt);
+    setShowAiLab(false);
+  };
 
   return (
     <div className="fixed inset-0 pointer-events-none p-6 flex flex-col justify-between z-10">
@@ -101,8 +118,91 @@ const HUD: React.FC<HUDProps> = ({
               </div>
             )}
           </div>
+          
+          {/* AI Visual Lab Trigger */}
+          <button 
+            onClick={() => setShowAiLab(true)}
+            className="pointer-events-auto mt-2 bg-gradient-to-r from-purple-600 to-blue-600 p-3 rounded-2xl border border-white/10 text-white shadow-lg hover:scale-105 transition-transform flex items-center gap-2"
+          >
+            <span className="text-lg">✨</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Visual Lab</span>
+          </button>
         </div>
       </div>
+
+      {/* AI Processing Overlay */}
+      {isAiProcessing && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-lg flex items-center justify-center z-[100] pointer-events-auto">
+          <div className="text-center">
+            <div className="w-24 h-24 border-t-4 border-blue-500 border-solid rounded-full animate-spin mx-auto mb-6"></div>
+            <div className="text-white font-black text-2xl uppercase tracking-tighter italic animate-pulse">
+              Gemini Vision Rendering...
+            </div>
+            <div className="text-slate-400 text-sm mt-2">Applying AI Visual Filters</div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Result Overlay */}
+      {aiResult && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center z-[110] pointer-events-auto p-10">
+          <div className="relative group">
+            <img src={aiResult} alt="AI Generated" className="max-w-full max-h-[70vh] rounded-3xl border-4 border-blue-500/30 shadow-[0_0_100px_rgba(59,130,246,0.5)]" />
+            <div className="absolute top-5 right-5 flex gap-3">
+               <button 
+                onClick={onCloseAIResult}
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-md px-6 py-2 rounded-full text-white font-bold text-sm border border-white/20 transition-all"
+               >
+                 Close
+               </button>
+            </div>
+          </div>
+          <div className="mt-8 text-center max-w-2xl">
+            <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-2">AI Visual Masterpiece</h3>
+            <p className="text-slate-400 text-sm font-medium leading-relaxed italic">
+              "This image was dynamically re-imagined by Gemini 2.5 Flash Image based on your creative prompt."
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* AI Prompt Input Modal */}
+      {showAiLab && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] pointer-events-auto p-4">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 w-full max-w-lg shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Visual Lab</h2>
+              <button onClick={() => setShowAiLab(false)} className="text-slate-500 hover:text-white transition-colors">✕</button>
+            </div>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4">What effect should Gemini apply?</p>
+            <form onSubmit={handleAiSubmit} className="space-y-4">
+              <input 
+                autoFocus
+                type="text"
+                placeholder="e.g. Add a retro 80s filter with neon lights"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-all"
+              />
+              <div className="flex gap-4">
+                <button 
+                  type="button"
+                  onClick={() => setShowAiLab(false)}
+                  className="flex-1 px-6 py-4 rounded-2xl text-slate-400 font-bold hover:bg-white/5 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-[2] bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 rounded-2xl text-white font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl"
+                >
+                  Generate Edit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Rear View Camera Monitor Overlay */}
       {state.rearViewActive && (
